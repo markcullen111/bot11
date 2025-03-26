@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Union, Optional
+import os
+import sys
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -15,25 +18,37 @@ class RiskManager:
     - Portfolio-level risk controls
     """
     
-    def __init__(self, max_position_size: float = 0.05, daily_loss_threshold: float = 0.03):
+    def __init__(self, debug=False):
         """
         Initialize the risk manager.
         
         Args:
-            max_position_size (float): Maximum position size as fraction of account balance
-            daily_loss_threshold (float): Daily loss threshold as fraction of account balance
+            debug (bool): Whether to run in debug mode
         """
-        self.max_position_size = max_position_size
-        self.daily_loss_threshold = daily_loss_threshold
-        
-        # Internal tracking variables
-        self.positions = {}  # Current open positions
-        self.daily_pnl = 0.0  # Daily profit and loss
-        self.initial_balance = 0.0  # Initial account balance for the day
-        self.current_balance = 0.0  # Current account balance
-        self.last_balance_update = None  # Timestamp of last balance update
+        self.max_position_size = 0.1  # Maximum position size as a fraction of portfolio
+        self.max_trades_per_day = 10  # Maximum number of trades per day
+        self.daily_loss_limit = 0.03  # Maximum allowed daily loss (3%)
+        self.trailing_stop_pct = 0.02  # Trailing stop loss percentage
         self.circuit_breaker_active = False  # Circuit breaker status
-        self.daily_trades = []  # Trades executed today
+        self.open_positions = []  # List of open positions
+        self.daily_pnl = 0.0  # Daily profit and loss
+        self.total_trades_today = 0  # Total trades executed today
+        self.initial_portfolio_value = 0.0  # Initial portfolio value for the day
+        self.current_portfolio_value = 0.0  # Current portfolio value
+        self.debug = debug  # Debug mode
+        
+        # Initialize missing attributes
+        self.initial_balance = 10000.0  # Initial balance for demo purposes
+        self.current_balance = 10000.0  # Current balance
+        self.last_balance_update = datetime.now()  # Last balance update time
+        self.daily_loss_threshold = 0.03  # Daily loss threshold as a fraction of balance
+        
+        # In debug mode, print initialization info
+        if self.debug:
+            logger.debug("RiskManager initialized with debug mode")
+            logger.debug(f"Risk parameters: max_position_size={self.max_position_size}, " 
+                         f"max_trades_per_day={self.max_trades_per_day}, "
+                         f"daily_loss_limit={self.daily_loss_limit}")
         
         # Risk thresholds
         self.stop_loss_pct = 0.02  # Default stop-loss percentage

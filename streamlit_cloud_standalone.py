@@ -66,7 +66,7 @@ class MockData:
         
         # Mock portfolio history
         days = 30
-        dates = pd.date_range(end=datetime.now(), periods=days, freq='D')
+        dates = pd.date_range(end=datetime.now(), periods=days, freq='d')
         portfolio_values = [10000]
         
         for i in range(1, len(dates)):
@@ -102,7 +102,7 @@ class MockData:
             freq = '4h'
         else:
             periods = 30  # 30 days of daily data
-            freq = 'D'
+            freq = 'd'
         
         dates = pd.date_range(end=datetime.now(), periods=periods, freq=freq)
         

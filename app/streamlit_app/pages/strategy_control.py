@@ -9,17 +9,25 @@ from datetime import datetime
 import json
 from pathlib import Path
 
-# Use relative import for the api module
-import sys
-from pathlib import Path
-
-# Add parent directory to path
-parent_dir = str(Path(__file__).parent.parent)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-# Import API module
-from api import *
+# Use flexible import approach for the api module
+try:
+    # Try first as absolute import from app structure
+    from app.streamlit_app.api import *
+except ImportError:
+    try:
+        # Try as relative import
+        import sys
+        from pathlib import Path
+        
+        # Add parent directory to path
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            sys.path.insert(0, parent_dir)
+        
+        # Import API module
+        from api import *
+    except ImportError as e:
+        st.error(f"Error importing API module: {e}")
 
 def show():
     """Display the strategy control page."""
@@ -107,7 +115,7 @@ def show_strategy_manager():
     
     # Update session state and API
     if st.button("Update Weights"):
-        if api.update_strategy_weights(normalized_weights):
+        if update_strategy_weights(normalized_weights):
             st.session_state.strategy_weights = normalized_weights
             st.success("Strategy weights updated successfully!")
         else:
@@ -133,7 +141,7 @@ def show_strategy_manager():
     st.write("### Signal Aggregation Method")
     
     # Get current status from API
-    strategy_status = api.get_strategy_status()
+    strategy_status = get_strategy_status()
     current_aggregation = "weighted"
     
     if strategy_status and 'signal_aggregation' in strategy_status:
@@ -145,12 +153,20 @@ def show_strategy_manager():
         index=["weighted", "majority", "best_performer"].index(current_aggregation) if current_aggregation in ["weighted", "majority", "best_performer"] else 0
     )
     
+    # Create a new configuration with updated settings
     if st.button("Update Aggregation Method"):
-        if api.strategy_manager:
-            api.strategy_manager.update_config({'signal_aggregation': aggregation_method})
-            st.success(f"Aggregation method updated to: {aggregation_method}")
+        # Create updated config
+        updated_config = strategy_status.copy() if strategy_status else {}
+        updated_config['signal_aggregation'] = aggregation_method
+        
+        if shared_state.strategy_manager:
+            success = shared_state.strategy_manager.update_config(updated_config)
+            if success:
+                st.success(f"Aggregation method updated to: {aggregation_method}")
+            else:
+                st.error("Failed to update aggregation method")
         else:
-            st.error("Strategy manager not initialized")
+            st.warning("Strategy manager not initialized, changes will be applied when restarted")
     
     # Strategy execution settings
     st.write("### Execution Settings")
@@ -183,14 +199,19 @@ def show_strategy_manager():
         )
     
     if st.button("Update Execution Settings"):
-        if api.strategy_manager:
-            api.strategy_manager.update_config({
-                'min_confidence': min_confidence,
-                'max_trades_per_day': max_trades_per_day
-            })
-            st.success("Execution settings updated successfully!")
+        # Create updated config
+        updated_config = strategy_status.copy() if strategy_status else {}
+        updated_config['min_confidence'] = min_confidence
+        updated_config['max_trades_per_day'] = max_trades_per_day
+        
+        if shared_state.strategy_manager:
+            success = shared_state.strategy_manager.update_config(updated_config)
+            if success:
+                st.success("Execution settings updated successfully!")
+            else:
+                st.error("Failed to update execution settings")
         else:
-            st.error("Strategy manager not initialized")
+            st.warning("Strategy manager not initialized, changes will be applied when restarted")
 
 def show_rule_based_strategy():
     """Display the rule-based strategy controls."""
@@ -198,310 +219,273 @@ def show_rule_based_strategy():
     
     st.write("Configure the parameters for the rule-based trading strategy.")
     
-    # Get strategy status from API
-    strategy_status = api.get_strategy_status()
-    rule_based_enabled = True
+    # Get strategy status
+    strategy_status = get_strategy_status()
     
+    # Get rule-based parameters
+    rule_params = {}
+    if strategy_status and 'rule_based_params' in strategy_status:
+        rule_params = strategy_status['rule_based_params']
+    
+    # Enable/disable strategy
+    enabled = True
     if strategy_status and 'enabled_strategies' in strategy_status:
-        rule_based_enabled = 'rule_based' in strategy_status['enabled_strategies']
+        enabled = 'rule_based' in strategy_status['enabled_strategies']
     
-    # Trading pair selection
-    available_pairs = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOTUSDT", "XRPUSDT"]
+    enable_col, _ = st.columns([1, 3])
+    with enable_col:
+        if enabled:
+            if st.button("Disable Rule-Based Strategy"):
+                if disable_strategy('rule_based'):
+                    st.success("Rule-Based strategy disabled")
+                else:
+                    st.error("Failed to disable Rule-Based strategy")
+        else:
+            if st.button("Enable Rule-Based Strategy"):
+                if enable_strategy('rule_based'):
+                    st.success("Rule-Based strategy enabled")
+                else:
+                    st.error("Failed to enable Rule-Based strategy")
     
-    # Get current pairs
-    current_pairs = st.session_state.trading_pairs
-    if strategy_status and 'trading_pairs' in strategy_status:
-        current_pairs = strategy_status['trading_pairs']
+    # Strategy parameters
+    st.write("### Strategy Parameters")
     
-    selected_pairs = st.multiselect(
-        "Trading Pairs",
-        options=available_pairs,
-        default=current_pairs
+    # Moving averages
+    ma_short = st.number_input(
+        "Short MA Period",
+        min_value=1,
+        max_value=200,
+        value=rule_params.get('ma_short', 20)
     )
     
-    # Strategy enabling/disabling
-    is_enabled = st.checkbox("Enable Rule-Based Strategy", value=rule_based_enabled)
+    ma_long = st.number_input(
+        "Long MA Period",
+        min_value=1,
+        max_value=500,
+        value=rule_params.get('ma_long', 50)
+    )
     
-    # Technical indicators parameters
-    st.write("### Technical Indicators")
-    
-    # Get current parameters from API
-    ma_short_value = 20
-    ma_long_value = 50
-    rsi_period_value = 14
-    rsi_oversold_value = 30
-    rsi_overbought_value = 70
-    
-    if strategy_status and 'rule_based_params' in strategy_status:
-        params = strategy_status['rule_based_params']
-        ma_short_value = params.get('ma_short', 20)
-        ma_long_value = params.get('ma_long', 50)
-        rsi_period_value = params.get('rsi_period', 14)
-        rsi_oversold_value = params.get('rsi_oversold', 30)
-        rsi_overbought_value = params.get('rsi_overbought', 70)
+    # RSI parameters
+    rsi_period = st.number_input(
+        "RSI Period",
+        min_value=1,
+        max_value=50,
+        value=rule_params.get('rsi_period', 14)
+    )
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.write("**Moving Averages**")
-        ma_short = st.number_input("Short MA Period", min_value=5, max_value=50, value=ma_short_value)
-        ma_long = st.number_input("Long MA Period", min_value=20, max_value=200, value=ma_long_value)
+        rsi_oversold = st.number_input(
+            "RSI Oversold Threshold",
+            min_value=1,
+            max_value=49,
+            value=rule_params.get('rsi_oversold', 30)
+        )
     
     with col2:
-        st.write("**RSI Settings**")
-        rsi_period = st.number_input("RSI Period", min_value=5, max_value=30, value=rsi_period_value)
-        rsi_oversold = st.number_input("RSI Oversold Threshold", min_value=10, max_value=40, value=rsi_oversold_value)
-        rsi_overbought = st.number_input("RSI Overbought Threshold", min_value=60, max_value=90, value=rsi_overbought_value)
+        rsi_overbought = st.number_input(
+            "RSI Overbought Threshold",
+            min_value=51,
+            max_value=99,
+            value=rule_params.get('rsi_overbought', 70)
+        )
     
-    # Strategy rules
-    st.write("### Strategy Rules")
+    # Rules selection
+    st.write("### Active Rules")
     
-    # Get current rules from API
-    enabled_rules_indices = [0, 1, 2, 3, 4, 5]  # Default all enabled
-    if strategy_status and 'rule_based_enabled_rules' in strategy_status:
-        enabled_rules_indices = strategy_status['rule_based_enabled_rules']
+    # Default rules
+    rule_descriptions = {
+        0: "Moving Average Crossover (Short MA crosses above Long MA)",
+        1: "Moving Average Crossover (Short MA crosses below Long MA)",
+        2: "RSI Oversold (RSI crosses above oversold threshold)",
+        3: "RSI Overbought (RSI crosses below overbought threshold)",
+        4: "Bollinger Band Bounce (Price crosses above lower band)",
+        5: "Bollinger Band Bounce (Price crosses below upper band)"
+    }
     
-    rules = [
-        "Buy when price crosses above 20-day MA and RSI < 70",
-        "Sell when price crosses below 50-day MA and RSI > 30",
-        "Buy when 20-day MA crosses above 50-day MA",
-        "Sell when 20-day MA crosses below 50-day MA",
-        "Buy when RSI < 30",
-        "Sell when RSI > 70"
-    ]
+    # Get enabled rules
+    enabled_rules = rule_params.get('enabled_rules', [0, 1, 2, 3, 4, 5])
     
-    enabled_rules = []
-    for i, rule in enumerate(rules):
-        is_rule_enabled = i in enabled_rules_indices
-        if st.checkbox(f"Rule {i+1}: {rule}", value=is_rule_enabled):
-            enabled_rules.append(i)
+    # Convert to list of integers if it's a string representation
+    if isinstance(enabled_rules, str):
+        try:
+            enabled_rules = json.loads(enabled_rules)
+        except:
+            enabled_rules = [0, 1, 2, 3, 4, 5]
     
-    # Save all changes
-    if st.button("Save Rule-Based Strategy Settings"):
-        # Update status based on checkbox
-        if is_enabled:
-            api.enable_strategy('rule_based')
-        else:
-            api.disable_strategy('rule_based')
+    # Create checkboxes for each rule
+    selected_rules = []
+    for rule_id, description in rule_descriptions.items():
+        is_enabled = rule_id in enabled_rules
+        if st.checkbox(description, value=is_enabled, key=f"rule_{rule_id}"):
+            selected_rules.append(rule_id)
+    
+    # Update button
+    if st.button("Update Rule-Based Strategy"):
+        # Create updated config
+        updated_config = strategy_status.copy() if strategy_status else {}
         
-        # Update trading pairs
-        if api.strategy_manager:
-            # Update trading pairs
-            api.strategy_manager.update_config({'trading_pairs': selected_pairs})
-            
-            # Update rule-based parameters
-            rule_based_params = {
-                'ma_short': ma_short,
-                'ma_long': ma_long,
-                'rsi_period': rsi_period,
-                'rsi_oversold': rsi_oversold,
-                'rsi_overbought': rsi_overbought,
-                'enabled_rules': enabled_rules
-            }
-            
-            api.strategy_manager.update_config({'rule_based_params': rule_based_params})
-            st.success("Rule-based strategy settings saved successfully!")
+        if 'rule_based_params' not in updated_config:
+            updated_config['rule_based_params'] = {}
+        
+        updated_config['rule_based_params']['ma_short'] = ma_short
+        updated_config['rule_based_params']['ma_long'] = ma_long
+        updated_config['rule_based_params']['rsi_period'] = rsi_period
+        updated_config['rule_based_params']['rsi_oversold'] = rsi_oversold
+        updated_config['rule_based_params']['rsi_overbought'] = rsi_overbought
+        updated_config['rule_based_params']['enabled_rules'] = selected_rules
+        
+        if shared_state.strategy_manager:
+            success = shared_state.strategy_manager.update_config(updated_config)
+            if success:
+                st.success("Rule-Based strategy updated successfully!")
+            else:
+                st.error("Failed to update Rule-Based strategy")
         else:
-            st.error("Strategy manager not initialized")
+            st.warning("Strategy manager not initialized, changes will be applied when restarted")
+    
+    # Visualize current settings
+    st.write("### Current Rule-Based Strategy Configuration")
+    
+    # Create a DataFrame for current settings
+    settings_data = {
+        "Parameter": ["Short MA Period", "Long MA Period", "RSI Period", 
+                    "RSI Oversold", "RSI Overbought", "Enabled Rules"],
+        "Value": [
+            ma_short,
+            ma_long,
+            rsi_period,
+            rsi_oversold,
+            rsi_overbought,
+            ", ".join([rule_descriptions[r].split(" (")[0] for r in selected_rules])
+        ]
+    }
+    
+    settings_df = pd.DataFrame(settings_data)
+    st.table(settings_df)
 
 def show_ml_strategy():
     """Display the ML strategy controls."""
     st.subheader("ML Strategy")
     
-    st.write("Configure the machine learning based trading strategy.")
+    st.write("Configure the parameters for the machine learning trading strategy.")
     
-    # Get strategy status from API
-    strategy_status = api.get_strategy_status()
-    ml_enabled = True
+    # Get strategy status
+    strategy_status = get_strategy_status()
     
-    if strategy_status and 'enabled_strategies' in strategy_status:
-        ml_enabled = 'ml' in strategy_status['enabled_strategies']
-    
-    # Strategy enabling/disabling
-    is_enabled = st.checkbox("Enable ML Strategy", value=ml_enabled)
-    
-    # Model selection
-    st.write("### Model Selection")
-    
-    # Get current model type from API
-    current_model = "RandomForest"
+    # Get ML parameters
+    ml_params = {}
     if strategy_status and 'ml_params' in strategy_status:
-        current_model = strategy_status['ml_params'].get('model_type', "RandomForest")
+        ml_params = strategy_status['ml_params']
     
+    # Enable/disable strategy
+    enabled = True
+    if strategy_status and 'enabled_strategies' in strategy_status:
+        enabled = 'ml' in strategy_status['enabled_strategies']
+    
+    enable_col, _ = st.columns([1, 3])
+    with enable_col:
+        if enabled:
+            if st.button("Disable ML Strategy"):
+                if disable_strategy('ml'):
+                    st.success("ML strategy disabled")
+                else:
+                    st.error("Failed to disable ML strategy")
+        else:
+            if st.button("Enable ML Strategy"):
+                if enable_strategy('ml'):
+                    st.success("ML strategy enabled")
+                else:
+                    st.error("Failed to enable ML strategy")
+    
+    # Strategy parameters
+    st.write("### Strategy Parameters")
+    
+    # Model type
     model_type = st.selectbox(
-        "Select Model Type",
-        ["RandomForest", "GradientBoosting", "XGBoost", "LSTM"],
-        index=["RandomForest", "GradientBoosting", "XGBoost", "LSTM"].index(current_model) if current_model in ["RandomForest", "GradientBoosting", "XGBoost", "LSTM"] else 0
+        "ML Model Type",
+        ["RandomForest", "XGBoost", "LightGBM", "CatBoost", "LSTM"],
+        index=["RandomForest", "XGBoost", "LightGBM", "CatBoost", "LSTM"].index(ml_params.get('model_type', 'RandomForest')) 
+        if ml_params.get('model_type') in ["RandomForest", "XGBoost", "LightGBM", "CatBoost", "LSTM"] else 0
     )
     
-    # Feature selection
-    st.write("### Feature Selection")
-    
-    # Get current feature list from API
-    all_features = [
-        "close", "volume", "sma_20", "sma_50", "sma_200",
-        "ema_12", "ema_26", "rsi_14", "macd", "macd_signal",
-        "upper_bb_20", "lower_bb_20", "adx_14"
+    # Features selection
+    available_features = [
+        "open", "high", "low", "close", "volume", 
+        "sma_5", "sma_10", "sma_20", "sma_50", "sma_100", "sma_200",
+        "ema_5", "ema_10", "ema_20", "ema_50", "ema_100", "ema_200",
+        "rsi_7", "rsi_14", "rsi_21",
+        "macd", "macd_signal", "macd_hist",
+        "bb_upper", "bb_middle", "bb_lower",
+        "atr", "adx", "obv",
+        "stoch_k", "stoch_d", "williams_r"
     ]
     
-    default_features = ["close", "volume", "sma_20", "sma_50", "rsi_14", "macd"]
-    if strategy_status and 'ml_params' in strategy_status and 'features' in strategy_status['ml_params']:
-        default_features = strategy_status['ml_params']['features']
+    # Get selected features
+    selected_features = ml_params.get('features', ["close", "volume", "sma_20", "sma_50", "rsi_14", "macd"])
     
-    selected_features = st.multiselect(
-        "Select Features",
-        options=all_features,
-        default=default_features
-    )
+    # Convert to list if it's a string representation
+    if isinstance(selected_features, str):
+        try:
+            selected_features = json.loads(selected_features)
+        except:
+            selected_features = ["close", "volume", "sma_20", "sma_50", "rsi_14", "macd"]
+    
+    st.write("### Feature Selection")
+    st.write("Select technical indicators to use as features for the ML model:")
+    
+    # Group features into columns
+    col1, col2, col3 = st.columns(3)
+    
+    new_selected_features = []
+    
+    with col1:
+        st.write("Price & Volume")
+        for feature in ["open", "high", "low", "close", "volume"]:
+            if st.checkbox(feature, value=feature in selected_features, key=f"feat_{feature}"):
+                new_selected_features.append(feature)
+        
+        st.write("RSI")
+        for feature in ["rsi_7", "rsi_14", "rsi_21"]:
+            if st.checkbox(feature, value=feature in selected_features, key=f"feat_{feature}"):
+                new_selected_features.append(feature)
+    
+    with col2:
+        st.write("Moving Averages")
+        for feature in ["sma_5", "sma_10", "sma_20", "sma_50", "sma_100"]:
+            if st.checkbox(feature, value=feature in selected_features, key=f"feat_{feature}"):
+                new_selected_features.append(feature)
+        
+        for feature in ["ema_5", "ema_10", "ema_20", "ema_50"]:
+            if st.checkbox(feature, value=feature in selected_features, key=f"feat_{feature}"):
+                new_selected_features.append(feature)
+    
+    with col3:
+        st.write("Technical Indicators")
+        for feature in ["macd", "macd_signal", "bb_upper", "bb_lower", "atr", "adx"]:
+            if st.checkbox(feature, value=feature in selected_features, key=f"feat_{feature}"):
+                new_selected_features.append(feature)
     
     # Training parameters
     st.write("### Training Parameters")
     
-    # Get current training parameters from API
-    lookback_value = 10
-    train_split_value = 0.8
-    retrain_interval_value = 7
-    
-    if strategy_status and 'ml_params' in strategy_status:
-        params = strategy_status['ml_params']
-        lookback_value = params.get('lookback', 10)
-        train_split_value = params.get('train_split', 0.8)
-        retrain_interval_value = params.get('retrain_interval', 7)
-    
     col1, col2 = st.columns(2)
     
     with col1:
-        lookback = st.number_input("Lookback Period (days)", min_value=1, max_value=30, value=lookback_value)
-        train_split = st.slider("Train/Test Split", min_value=0.5, max_value=0.9, value=train_split_value, step=0.05)
-    
-    with col2:
-        retrain_interval = st.number_input("Retrain Interval (days)", min_value=1, max_value=30, value=retrain_interval_value)
-    
-    # Save all changes
-    if st.button("Save ML Strategy Settings"):
-        # Update status based on checkbox
-        if is_enabled:
-            api.enable_strategy('ml')
-        else:
-            api.disable_strategy('ml')
-        
-        # Update ML parameters
-        if api.strategy_manager:
-            ml_params = {
-                'model_type': model_type,
-                'features': selected_features,
-                'lookback': lookback,
-                'train_split': train_split,
-                'retrain_interval': retrain_interval
-            }
-            
-            api.strategy_manager.update_config({'ml_params': ml_params})
-            st.success("ML strategy settings saved successfully!")
-        else:
-            st.error("Strategy manager not initialized")
-
-def show_rl_strategy():
-    """Display the RL strategy controls."""
-    st.subheader("RL Strategy")
-    
-    st.write("Configure the reinforcement learning based trading strategy.")
-    
-    # Get strategy status from API
-    strategy_status = api.get_strategy_status()
-    rl_enabled = True
-    
-    if strategy_status and 'enabled_strategies' in strategy_status:
-        rl_enabled = 'rl' in strategy_status['enabled_strategies']
-    
-    # Strategy enabling/disabling
-    is_enabled = st.checkbox("Enable RL Strategy", value=rl_enabled)
-    
-    # Algorithm selection
-    st.write("### Algorithm Selection")
-    
-    # Get current algorithm from API
-    current_algo = "PPO"
-    if strategy_status and 'rl_params' in strategy_status:
-        current_algo = strategy_status['rl_params'].get('algorithm', "PPO")
-    
-    algorithm = st.selectbox(
-        "Select RL Algorithm",
-        ["PPO", "A2C", "DQN", "SAC", "TD3"],
-        index=["PPO", "A2C", "DQN", "SAC", "TD3"].index(current_algo) if current_algo in ["PPO", "A2C", "DQN", "SAC", "TD3"] else 0
-    )
-    
-    # Environment settings
-    st.write("### Environment Settings")
-    
-    # Get current environment settings from API
-    max_position_value = 0.1
-    reward_scaling_value = 1.0
-    drawdown_penalty_value = 0.1
-    window_size_value = 30
-    
-    if strategy_status and 'rl_params' in strategy_status:
-        params = strategy_status['rl_params']
-        max_position_value = params.get('max_position', 0.1)
-        reward_scaling_value = params.get('reward_scaling', 1.0)
-        drawdown_penalty_value = params.get('drawdown_penalty', 0.1)
-        window_size_value = params.get('window_size', 30)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        max_position = st.slider(
-            "Maximum Position Size (fraction of portfolio)",
-            min_value=0.01,
-            max_value=0.5,
-            value=max_position_value,
-            step=0.01
+        lookback = st.number_input(
+            "Lookback Period (days)",
+            min_value=1,
+            max_value=30,
+            value=ml_params.get('lookback', 10)
         )
         
-        reward_scaling = st.slider(
-            "Reward Scaling",
-            min_value=0.1,
-            max_value=10.0,
-            value=reward_scaling_value,
-            step=0.1
-        )
-    
-    with col2:
-        drawdown_penalty = st.slider(
-            "Drawdown Penalty",
-            min_value=0.0,
-            max_value=1.0,
-            value=drawdown_penalty_value,
+        train_split = st.slider(
+            "Training/Test Split Ratio",
+            min_value=0.5,
+            max_value=0.9,
+            value=ml_params.get('train_split', 0.8),
             step=0.05
-        )
-        
-        window_size = st.number_input(
-            "Window Size (timesteps)",
-            min_value=10,
-            max_value=100,
-            value=window_size_value
-        )
-    
-    # Training settings
-    st.write("### Training Settings")
-    
-    # Get current training settings from API
-    learning_rate_value = 0.0003
-    retrain_interval_value = 7
-    
-    if strategy_status and 'rl_params' in strategy_status:
-        params = strategy_status['rl_params']
-        learning_rate_value = params.get('learning_rate', 0.0003)
-        retrain_interval_value = params.get('retrain_interval', 7)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        learning_rate = st.number_input(
-            "Learning Rate",
-            min_value=0.00001,
-            max_value=0.01,
-            value=learning_rate_value,
-            format="%f"
         )
     
     with col2:
@@ -509,30 +493,192 @@ def show_rl_strategy():
             "Retrain Interval (days)",
             min_value=1,
             max_value=30,
-            value=retrain_interval_value
+            value=ml_params.get('retrain_interval', 7)
         )
     
-    # Save all changes
-    if st.button("Save RL Strategy Settings"):
-        # Update status based on checkbox
-        if is_enabled:
-            api.enable_strategy('rl')
-        else:
-            api.disable_strategy('rl')
+    # Update button
+    if st.button("Update ML Strategy"):
+        # Create updated config
+        updated_config = strategy_status.copy() if strategy_status else {}
         
-        # Update RL parameters
-        if api.strategy_manager:
-            rl_params = {
-                'algorithm': algorithm,
-                'max_position': max_position,
-                'reward_scaling': reward_scaling,
-                'drawdown_penalty': drawdown_penalty,
-                'window_size': window_size,
-                'learning_rate': learning_rate,
-                'retrain_interval': retrain_interval
-            }
-            
-            api.strategy_manager.update_config({'rl_params': rl_params})
-            st.success("RL strategy settings saved successfully!")
+        if 'ml_params' not in updated_config:
+            updated_config['ml_params'] = {}
+        
+        updated_config['ml_params']['model_type'] = model_type
+        updated_config['ml_params']['features'] = new_selected_features
+        updated_config['ml_params']['lookback'] = lookback
+        updated_config['ml_params']['train_split'] = train_split
+        updated_config['ml_params']['retrain_interval'] = retrain_interval
+        
+        if shared_state.strategy_manager:
+            success = shared_state.strategy_manager.update_config(updated_config)
+            if success:
+                st.success("ML strategy updated successfully!")
+            else:
+                st.error("Failed to update ML strategy")
         else:
-            st.error("Strategy manager not initialized") 
+            st.warning("Strategy manager not initialized, changes will be applied when restarted")
+    
+    # Visualize current settings
+    st.write("### Current ML Strategy Configuration")
+    
+    # Create a DataFrame for current settings
+    settings_data = {
+        "Parameter": ["Model Type", "Selected Features", "Lookback Period", 
+                     "Train/Test Split", "Retrain Interval"],
+        "Value": [
+            model_type,
+            ", ".join(new_selected_features),
+            f"{lookback} days",
+            f"{train_split:.0%}",
+            f"{retrain_interval} days"
+        ]
+    }
+    
+    settings_df = pd.DataFrame(settings_data)
+    st.table(settings_df)
+
+def show_rl_strategy():
+    """Display the RL strategy controls."""
+    st.subheader("RL Strategy")
+    
+    st.write("Configure the parameters for the reinforcement learning trading strategy.")
+    
+    # Get strategy status
+    strategy_status = get_strategy_status()
+    
+    # Get RL parameters
+    rl_params = {}
+    if strategy_status and 'rl_params' in strategy_status:
+        rl_params = strategy_status['rl_params']
+    
+    # Enable/disable strategy
+    enabled = True
+    if strategy_status and 'enabled_strategies' in strategy_status:
+        enabled = 'rl' in strategy_status['enabled_strategies']
+    
+    enable_col, _ = st.columns([1, 3])
+    with enable_col:
+        if enabled:
+            if st.button("Disable RL Strategy"):
+                if disable_strategy('rl'):
+                    st.success("RL strategy disabled")
+                else:
+                    st.error("Failed to disable RL strategy")
+        else:
+            if st.button("Enable RL Strategy"):
+                if enable_strategy('rl'):
+                    st.success("RL strategy enabled")
+                else:
+                    st.error("Failed to enable RL strategy")
+    
+    # Strategy parameters
+    st.write("### Strategy Parameters")
+    
+    # Algorithm selection
+    algorithm = st.selectbox(
+        "RL Algorithm",
+        ["PPO", "A2C", "DQN", "DDPG", "SAC"],
+        index=["PPO", "A2C", "DQN", "DDPG", "SAC"].index(rl_params.get('algorithm', 'PPO')) 
+        if rl_params.get('algorithm') in ["PPO", "A2C", "DQN", "DDPG", "SAC"] else 0
+    )
+    
+    # Training parameters
+    st.write("### Training Parameters")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        window_size = st.number_input(
+            "Observation Window Size",
+            min_value=10,
+            max_value=100,
+            value=rl_params.get('window_size', 30)
+        )
+        
+        learning_rate = st.number_input(
+            "Learning Rate",
+            min_value=0.00001,
+            max_value=0.01,
+            value=rl_params.get('learning_rate', 0.0003),
+            format="%.5f"
+        )
+        
+        retrain_interval = st.number_input(
+            "Retrain Interval (days)",
+            min_value=1,
+            max_value=30,
+            value=rl_params.get('retrain_interval', 7)
+        )
+    
+    with col2:
+        reward_scaling = st.number_input(
+            "Reward Scaling Factor",
+            min_value=0.1,
+            max_value=10.0,
+            value=rl_params.get('reward_scaling', 1.0),
+            step=0.1
+        )
+        
+        drawdown_penalty = st.number_input(
+            "Drawdown Penalty",
+            min_value=0.0,
+            max_value=1.0,
+            value=rl_params.get('drawdown_penalty', 0.1),
+            step=0.05
+        )
+        
+        max_position = st.slider(
+            "Maximum Position Size (% of portfolio)",
+            min_value=0.01,
+            max_value=1.0,
+            value=rl_params.get('max_position', 0.1),
+            step=0.01,
+            format="%.2f"
+        )
+    
+    # Update button
+    if st.button("Update RL Strategy"):
+        # Create updated config
+        updated_config = strategy_status.copy() if strategy_status else {}
+        
+        if 'rl_params' not in updated_config:
+            updated_config['rl_params'] = {}
+        
+        updated_config['rl_params']['algorithm'] = algorithm
+        updated_config['rl_params']['window_size'] = window_size
+        updated_config['rl_params']['learning_rate'] = learning_rate
+        updated_config['rl_params']['reward_scaling'] = reward_scaling
+        updated_config['rl_params']['drawdown_penalty'] = drawdown_penalty
+        updated_config['rl_params']['max_position'] = max_position
+        updated_config['rl_params']['retrain_interval'] = retrain_interval
+        
+        if shared_state.strategy_manager:
+            success = shared_state.strategy_manager.update_config(updated_config)
+            if success:
+                st.success("RL strategy updated successfully!")
+            else:
+                st.error("Failed to update RL strategy")
+        else:
+            st.warning("Strategy manager not initialized, changes will be applied when restarted")
+    
+    # Visualize current settings
+    st.write("### Current RL Strategy Configuration")
+    
+    # Create a DataFrame for current settings
+    settings_data = {
+        "Parameter": ["Algorithm", "Window Size", "Learning Rate", 
+                     "Reward Scaling", "Drawdown Penalty", "Max Position", "Retrain Interval"],
+        "Value": [
+            algorithm,
+            window_size,
+            f"{learning_rate:.5f}",
+            reward_scaling,
+            drawdown_penalty,
+            f"{max_position:.0%}",
+            f"{retrain_interval} days"
+        ]
+    }
+    
+    settings_df = pd.DataFrame(settings_data)
+    st.table(settings_df) 

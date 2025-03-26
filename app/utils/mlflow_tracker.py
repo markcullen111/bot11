@@ -560,6 +560,169 @@ class MLflowTracker:
             # Log the figure
             self.log_figure(plt.gcf(), "cumulative_profit.png")
             plt.close()
+    
+    def get_experiments(self):
+        """
+        Get a list of all experiments.
+        
+        Returns:
+            List of experiment dictionaries
+        """
+        try:
+            # Get all experiments
+            experiments = mlflow.search_experiments()
+            
+            # Convert to a more usable format
+            result = []
+            for exp in experiments:
+                if isinstance(exp, dict):  # In case API returns dicts
+                    exp_dict = exp
+                else:  # In case API returns objects
+                    exp_dict = {
+                        'experiment_id': exp.experiment_id,
+                        'name': exp.name,
+                        'artifact_location': exp.artifact_location,
+                        'lifecycle_stage': exp.lifecycle_stage
+                    }
+                    # Convert creation time if available
+                    if hasattr(exp, 'creation_time'):
+                        exp_dict['creation_time'] = datetime.fromtimestamp(exp.creation_time / 1000.0).strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        exp_dict['creation_time'] = "Unknown"
+                
+                result.append(exp_dict)
+            
+            logger.info(f"Retrieved {len(result)} experiments")
+            return result
+        except Exception as e:
+            logger.error(f"Error getting experiments: {e}")
+            return []
+    
+    def get_runs(self, experiment_id):
+        """
+        Get all runs for an experiment.
+        
+        Args:
+            experiment_id: The experiment ID
+            
+        Returns:
+            List of run dictionaries
+        """
+        try:
+            # Search for runs in the experiment
+            runs = mlflow.search_runs(experiment_ids=[experiment_id])
+            
+            # Convert to a more usable format
+            result = []
+            
+            # Process each run
+            for _, run_data in runs.iterrows():
+                # Extract run info
+                run_id = run_data['run_id']
+                
+                # Get run details
+                run_info = mlflow.get_run(run_id)
+                
+                # Extract metrics and params
+                metrics = {}
+                params = {}
+                
+                for col in run_data.index:
+                    if col.startswith('metrics.'):
+                        metric_name = col.replace('metrics.', '')
+                        metrics[metric_name] = run_data[col]
+                    elif col.startswith('params.'):
+                        param_name = col.replace('params.', '')
+                        params[param_name] = run_data[col]
+                
+                # Get start time
+                start_time = "Unknown"
+                if 'start_time' in run_data:
+                    start_time = datetime.fromtimestamp(run_data['start_time'] / 1000.0).strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Calculate duration
+                duration = "Unknown"
+                if 'start_time' in run_data and 'end_time' in run_data and run_data['end_time']:
+                    duration_sec = (run_data['end_time'] - run_data['start_time']) / 1000.0
+                    if duration_sec < 60:
+                        duration = f"{int(duration_sec)} seconds"
+                    elif duration_sec < 3600:
+                        duration = f"{int(duration_sec / 60)} minutes"
+                    else:
+                        duration = f"{round(duration_sec / 3600, 1)} hours"
+                
+                # Add run info to result
+                run_dict = {
+                    'run_id': run_id,
+                    'experiment_id': experiment_id,
+                    'start_time': start_time,
+                    'status': run_data.get('status', 'UNKNOWN'),
+                    'duration': duration,
+                    'metrics': metrics,
+                    'params': params
+                }
+                
+                # Try to get artifacts
+                try:
+                    # We don't want to load all artifacts here for performance reasons
+                    # Just note that artifacts are available
+                    artifact_uri = run_info.info.artifact_uri
+                    run_dict['artifact_uri'] = artifact_uri
+                except Exception as e:
+                    logger.warning(f"Error getting artifacts for run {run_id}: {e}")
+                
+                result.append(run_dict)
+            
+            logger.info(f"Retrieved {len(result)} runs for experiment {experiment_id}")
+            return result
+        except Exception as e:
+            logger.error(f"Error getting runs for experiment {experiment_id}: {e}")
+            return []
+    
+    def get_artifacts(self, run_id, artifact_path=None):
+        """
+        Get artifacts for a run.
+        
+        Args:
+            run_id: The run ID
+            artifact_path: Optional path within the run's artifacts
+            
+        Returns:
+            Dictionary of artifacts
+        """
+        try:
+            # Get the artifact URI
+            run = mlflow.get_run(run_id)
+            artifact_uri = run.info.artifact_uri
+            
+            # If artifact_path is provided, append to the URI
+            if artifact_path:
+                artifact_uri = os.path.join(artifact_uri, artifact_path)
+            
+            # List artifacts at the URI
+            artifacts = mlflow.artifacts.list_artifacts(run_id, artifact_path)
+            
+            # Process artifacts
+            result = {}
+            for artifact in artifacts:
+                # Check if this is a directory
+                if artifact.is_dir:
+                    # Recursively get contents
+                    sub_path = artifact.path
+                    result[artifact.path] = self.get_artifacts(run_id, sub_path)
+                else:
+                    # For files, just store the path
+                    result[artifact.path] = {
+                        'type': 'file',
+                        'size': artifact.file_size,
+                        'path': artifact.path
+                    }
+            
+            logger.info(f"Retrieved artifacts for run {run_id}")
+            return result
+        except Exception as e:
+            logger.error(f"Error getting artifacts for run {run_id}: {e}")
+            return {}
 
 def get_tracker(
     experiment_name: Optional[str] = None,

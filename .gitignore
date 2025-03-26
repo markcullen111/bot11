@@ -25,16 +25,127 @@ venv/
 ENV/
 env/
 
-# Data files
-data/logs/
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+data/
+*.log
+.env
+config/local_config.yaml
+
+# MLflow
+mlruns/
+mlflow/
+
+# Streamlit
+.streamlit/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+data/
+!data/.gitkeep
+config/config.yaml
+*.db
+*.sqlite3
+logs/
+mlruns/
+
+# API Keys and sensitive information
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+tokens.json
+
+# Trading bot specific
 data/historical/
 data/models/
+data/logs/
+data/mlflow/
+backtest_results/
+
+# MLflow artifacts
+mlruns/
+mlflow.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Large files
+*.csv
+*.parquet
+*.hdf5
+*.h5
+*.feather
+*.zip
+*.tar.gz
+*.pkl
 
 # Environment variables
 .env
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Data files
+data/logs/
+data/historical/
+data/models/
 
 # IDE files
 .idea/

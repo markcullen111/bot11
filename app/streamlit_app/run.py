@@ -17,14 +17,30 @@ sys.path.insert(0, str(app_dir.parent))
 debug_mode = os.environ.get('TRADING_BOT_DEBUG', '0') == '1'
 log_level = logging.DEBUG if debug_mode else logging.INFO
 
+# Check if running on Streamlit Cloud
+is_streamlit_cloud = 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_RUN_ON_SAVE' in os.environ
+
+# Create required directories
+for directory in ['data', 'data/logs', 'data/historical', 'data/models']:
+    os.makedirs(directory, exist_ok=True)
+
+# Setup the logging configuration
 logging.basicConfig(
     level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.path.join('data', 'logs', f'streamlit_run_{datetime.now().strftime("%Y%m%d")}.log'))
+        logging.StreamHandler()
     ]
 )
+
+# Only add file handler if writing to the directory is possible
+try:
+    log_file_path = os.path.join('data', 'logs', f'streamlit_run_{datetime.now().strftime("%Y%m%d")}.log')
+    file_handler = logging.FileHandler(log_file_path)
+    logging.getLogger().addHandler(file_handler)
+except Exception as e:
+    print(f"Warning: Could not set up log file: {e}")
+
 logger = logging.getLogger(__name__)
 
 def main():
@@ -47,13 +63,14 @@ def main():
         help="Enable debug mode with verbose logging"
     )
     
+    # For Streamlit Cloud, we always want to enable debug mode
     args = parser.parse_args()
     
-    # Set debug mode if flag is passed
-    if args.debug:
+    # Set debug mode if flag is passed or if on Streamlit Cloud
+    if args.debug or is_streamlit_cloud:
         os.environ['TRADING_BOT_DEBUG'] = '1'
         logging.getLogger().setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled via command line flag")
+        logger.debug("Debug mode enabled via command line flag or Streamlit Cloud")
     
     # Initialize API components if needed
     if args.api_only:
@@ -64,8 +81,12 @@ def main():
         api_secret = os.environ.get('BINANCE_API_SECRET')
         
         if not api_key or not api_secret:
-            logger.error("Binance API credentials not found in environment variables")
-            return 1
+            logger.warning("Binance API credentials not found in environment variables")
+            if debug_mode or is_streamlit_cloud:
+                logger.info("Continuing with mock data due to debug mode")
+            else:
+                logger.error("Cannot continue without API credentials in production mode")
+                return 1
         
         # Initialize API components
         if api.initialize_api(api_key, api_secret):
@@ -116,7 +137,7 @@ def main():
     ]
     
     # Add debug flags for Streamlit if in debug mode
-    if args.debug or debug_mode:
+    if debug_mode:
         cmd.extend(["--logger.level", "debug"])
         logger.debug(f"Running Streamlit with debug logging: {' '.join(cmd)}")
     

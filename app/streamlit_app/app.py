@@ -1,128 +1,247 @@
-import streamlit as st
+#!/usr/bin/env python
+"""
+Streamlit App for Crypto Trading Bot
+
+This is the main entry point for the Streamlit web interface.
+"""
+
 import os
 import sys
-import asyncio
-import plotly.graph_objects as go
-import pandas as pd
-from datetime import datetime, timedelta
+import logging
+import importlib
+import inspect
+import streamlit as st
+import yaml
+from pathlib import Path
+from typing import Dict, Any, List, Callable
 
-# Add the app directory to the path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-# Import project modules
-from pages import dashboard, strategy_control, performance, trading_history, settings
-from . import api
-
-# Page configuration
-st.set_page_config(
-    page_title="Trading Bot Dashboard",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
-# Initialize session state for storing app state
-if 'initialized' not in st.session_state:
-    st.session_state.initialized = False
-    st.session_state.bot_running = False
-    st.session_state.selected_page = "Dashboard"
-    st.session_state.trading_pairs = ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
-    st.session_state.timeframe = "1h"
-    st.session_state.strategy_weights = {
-        "rule_based": 0.4,
-        "ml": 0.3,
-        "rl": 0.3
-    }
+logger = logging.getLogger(__name__)
 
-# Sidebar for navigation
-with st.sidebar:
-    st.title("Trading Bot")
-    st.markdown("---")
+def load_config() -> Dict[str, Any]:
+    """
+    Load the configuration for the application.
     
-    # Navigation
-    pages = {
-        "Dashboard": dashboard,
-        "Strategy Control": strategy_control,
-        "Performance": performance,
-        "Trading History": trading_history,
-        "Settings": settings
-    }
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+    """
+    try:
+        project_root = Path(__file__).resolve().parents[2]
+        config_path = project_root / "config" / "config.yaml"
+        
+        if not config_path.exists():
+            logger.warning(f"Config file not found at {config_path}. Using default config.")
+            return {
+                "app_name": "Crypto Trading Bot",
+                "pairs": ["BTC/USDT", "ETH/USDT"],
+                "timeframes": ["1h", "4h", "1d"],
+                "strategies": ["rsi", "macd", "bollinger"],
+                "ui": {
+                    "theme": "dark",
+                    "refresh_rate": 60
+                },
+                "data": {
+                    "historical_days": 90
+                }
+            }
+        
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            logger.info("Configuration loaded successfully")
+            return config
     
-    st.session_state.selected_page = st.selectbox(
-        "Navigation",
-        list(pages.keys()),
-        index=list(pages.keys()).index(st.session_state.selected_page)
+    except Exception as e:
+        logger.error(f"Error loading configuration: {e}")
+        return {}
+
+def load_pages() -> Dict[str, Any]:
+    """
+    Load all available pages from the pages directory.
+    
+    Returns:
+        Dict[str, Any]: Dictionary of page modules
+    """
+    pages = {}
+    try:
+        pages_dir = Path(__file__).resolve().parent / "pages"
+        
+        # Get all Python files in the pages directory
+        page_files = list(pages_dir.glob("*.py"))
+        
+        for page_file in page_files:
+            # Skip __init__.py and any other special files
+            if page_file.name.startswith("__"):
+                continue
+            
+            # Get the module name without the .py extension
+            module_name = page_file.stem
+            
+            # Create the full module path
+            full_module_name = f"app.streamlit_app.pages.{module_name}"
+            
+            try:
+                # Import the module
+                module = importlib.import_module(full_module_name)
+                
+                # Check if the module has a show function
+                if hasattr(module, "show"):
+                    show_func = getattr(module, "show")
+                    if callable(show_func):
+                        # Check if the show function can accept a config parameter
+                        try:
+                            signature = inspect.signature(show_func)
+                            # Add module to pages dictionary with a formatted name
+                            formatted_name = module_name.replace("_", " ").title()
+                            pages[formatted_name] = module
+                            
+                            logger.info(f"Loaded page module: {formatted_name}")
+                        except (ValueError, TypeError):
+                            logger.warning(f"Module {module_name} has a show function with an invalid signature")
+                    else:
+                        logger.warning(f"Module {module_name} has a show attribute that is not callable")
+                else:
+                    logger.warning(f"Module {module_name} does not have a show function")
+            
+            except Exception as e:
+                logger.error(f"Error loading module {module_name}: {e}")
+    
+    except Exception as e:
+        logger.error(f"Error loading pages: {e}")
+    
+    return pages
+
+def check_show_accepts_config(module) -> bool:
+    """
+    Check if the show function of a module accepts a config parameter.
+    
+    Args:
+        module: Module to check
+        
+    Returns:
+        bool: True if the show function accepts a config parameter
+    """
+    try:
+        show_func = getattr(module, "show")
+        signature = inspect.signature(show_func)
+        return len(signature.parameters) > 0
+    except (ValueError, TypeError, AttributeError):
+        # If there's any error examining the signature, assume it doesn't accept config
+        return False
+
+def main():
+    """Main entry point for the Streamlit app."""
+    # Load configuration
+    config = load_config()
+    
+    # Set page config
+    st.set_page_config(
+        page_title=config.get("app_name", "Crypto Trading Bot"),
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded",
     )
     
-    st.markdown("---")
+    # Custom CSS
+    st.markdown("""
+        <style>
+        .main .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
     
-    # Bot controls
-    if st.session_state.bot_running:
-        if st.button("Stop Bot", type="primary"):
-            if api.stop_bot():
-                st.session_state.bot_running = False
-                st.success("Trading bot stopped")
-            else:
-                st.error("Failed to stop trading bot")
-    else:
-        if st.button("Start Bot", type="primary"):
-            if api.start_bot():
-                st.session_state.bot_running = True
-                st.success("Trading bot started")
-            else:
-                st.error("Failed to start trading bot")
-    
-    st.markdown("---")
-    
-    # Status indicators
-    st.subheader("Status")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("API Status", "Connected" if st.session_state.initialized else "Disconnected")
-    with col2:
-        bot_status = "Running" if api.is_bot_running() else "Stopped"
-        st.metric("Bot Status", bot_status)
-    
-    st.markdown("---")
-    st.info("Trading on Binance with real funds. Exercise caution.")
-
-# Initialize components if not already done
-if not st.session_state.initialized:
-    try:
-        # Get API credentials
-        api_key = os.environ.get('BINANCE_API_KEY')
-        api_secret = os.environ.get('BINANCE_API_SECRET')
+    # Sidebar
+    with st.sidebar:
+        st.title(config.get("app_name", "Crypto Trading Bot"))
+        st.markdown("---")
         
-        if not api_key or not api_secret:
-            st.error("Binance API credentials not found in environment variables")
-        else:
-            # Initialize API components
-            initialization_successful = api.initialize_api(api_key, api_secret)
+        # Load pages
+        pages = load_pages()
+        
+        # Page selection
+        if pages:
+            page_names = list(pages.keys())
+            default_index = 0
             
-            if initialization_successful:
-                st.session_state.initialized = True
-                
-                # Start data updater
-                api.start_data_updater()
-                
-                # Sync session state with API
-                st.session_state.bot_running = api.is_bot_running()
-                st.session_state.strategy_weights = api.shared_state.strategy_weights
+            # If Dashboard is available, set it as default
+            if "Dashboard" in page_names:
+                default_index = page_names.index("Dashboard")
+            
+            selection = st.sidebar.selectbox(
+                "Navigation",
+                page_names,
+                index=default_index
+            )
+            
+            # Information about the selected page
+            page_module = pages[selection]
+            if hasattr(page_module, "__doc__") and page_module.__doc__:
+                st.sidebar.markdown(f"**About**: {page_module.__doc__.strip()}")
+            
+            st.sidebar.markdown("---")
+            
+            # Status indicator
+            st.sidebar.markdown("### System Status")
+            st.sidebar.markdown(
+                """
+                <style>
+                .status-indicator {
+                    display: inline-block;
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    margin-right: 5px;
+                }
+                .status-online {
+                    background-color: #28a745;
+                }
+                .status-offline {
+                    background-color: #dc3545;
+                }
+                </style>
+                <div>
+                <span class="status-indicator status-online"></span> <span>Bot Status: Online</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            # Config information
+            st.sidebar.markdown("### Configuration")
+            st.sidebar.text(f"Trading Pairs: {', '.join(config.get('pairs', []))}")
+            st.sidebar.text(f"Strategies: {', '.join(config.get('strategies', []))}")
+            
+            # Credits
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("### Credits")
+            st.sidebar.markdown("Made with ❤️ by Your Name")
+            st.sidebar.markdown("Version 0.1.0")
+        else:
+            st.sidebar.error("No pages found!")
+    
+    # Main content area
+    if pages and selection in pages:
+        # Render selected page
+        module = pages[selection]
+        
+        # Check if the show function accepts a config parameter
+        try:
+            if check_show_accepts_config(module):
+                module.show(config)
             else:
-                st.error("Failed to initialize API components")
-    except Exception as e:
-        st.error(f"Initialization error: {e}")
+                # Fallback for modules without config parameter
+                module.show()
+        except Exception as e:
+            st.error(f"Error displaying page: {str(e)}")
+            logger.error(f"Error displaying page {selection}: {str(e)}")
+    else:
+        st.error("Page not found!")
 
-# Display the selected page
-pages[st.session_state.selected_page].show()
-
-# Footer
-st.markdown("---")
-st.markdown(
-    """
-    <div style="text-align: center">
-        <p>Trading Bot v1.0 | &copy; 2023 | Real-time trading with Binance</p>
-    </div>
-    """,
-    unsafe_allow_html=True
-) 
+if __name__ == "__main__":
+    main()

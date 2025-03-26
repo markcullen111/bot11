@@ -1,18 +1,29 @@
 import streamlit as st
+import os
+from datetime import datetime
 
-st.title("Test Streamlit App")
-st.write("Hello, this is a test!")
+# Create required directories first
+for directory in ['data', 'data/logs', 'data/historical', 'data/models']:
+    os.makedirs(directory, exist_ok=True)
 
-import pandas as pd
-import numpy as np
+# Then configure the app
+st.set_page_config(
+    page_title="Trading Bot Test",
+    page_icon="📈",
+    layout="wide"
+)
 
-# Create some test data
-data = pd.DataFrame({
-    'date': pd.date_range(start='2023-01-01', periods=10),
-    'value': np.random.randn(10).cumsum()
-})
+st.title("Trading Bot Dashboard")
+st.markdown("## Test Page")
+st.success("If you can see this, the app is working correctly!")
 
-# Display a chart
-st.line_chart(data.set_index('date'))
+# Show current time
+st.info(f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-st.write("If you can see this, Streamlit is working properly!") 
+# Show that the directories were created
+st.write("Created directories:")
+for directory in ['data', 'data/logs', 'data/historical', 'data/models']:
+    if os.path.exists(directory):
+        st.write(f"✅ {directory}")
+    else:
+        st.write(f"❌ {directory}") 

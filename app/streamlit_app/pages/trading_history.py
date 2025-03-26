@@ -6,7 +6,27 @@ from datetime import datetime, timedelta
 import os
 import sys
 
-# Use relative import for the api module
+
+# Use flexible import approach for the api module
+try:
+    # Try first as absolute import from app structure
+    from app.streamlit_app.api import *
+except ImportError:
+    try:
+        # Try as relative import
+        import sys
+        from pathlib import Path
+        
+        # Add parent directory to path
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            sys.path.insert(0, parent_dir)
+        
+        # Import API module
+        from api import *
+    except ImportError as e:
+        st.error(f"Error importing API module: {e}")
+
 import sys
 from pathlib import Path
 

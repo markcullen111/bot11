@@ -1,4 +1,5 @@
-from app.data_collection.binance_data import BinanceDataCollector
-from app.data_collection.feature_engineering import FeatureEngineering
+# Import the main classes
+from app.data_collection.exchange_client import ExchangeClient
+from app.data_collection.market_data import MarketDataManager
 
-__all__ = ['BinanceDataCollector', 'FeatureEngineering']
+__all__ = ['ExchangeClient', 'MarketDataManager']

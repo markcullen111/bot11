@@ -1,372 +1,614 @@
 import streamlit as st
-import pandas as pd
 import os
-import sys
+import yaml
 import json
-from datetime import datetime
-
-# Use relative import for the api module
-import sys
 from pathlib import Path
+import logging
 
-# Add parent directory to path
-parent_dir = str(Path(__file__).parent.parent)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
+# Import utilities
+from app.utils.config import load_config, save_config, update_config
 
-# Import API module
-from api import *
+logger = logging.getLogger(__name__)
 
-def show():
-    """Display the settings page."""
+def show(config):
+    """Show the settings page."""
     st.title("Settings")
     
+    if not config:
+        st.error("Failed to load configuration. Please check your config file.")
+        return
+    
     # Create tabs for different settings categories
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "API Configuration", 
+    tabs = st.tabs([
+        "General Settings", 
+        "Exchange", 
+        "Trading Pairs", 
+        "Strategy Parameters", 
         "Risk Management",
-        "Notifications",
-        "System Settings"
+        "Notifications"
     ])
     
-    with tab1:
-        show_api_settings()
-    
-    with tab2:
-        show_risk_settings()
-    
-    with tab3:
-        show_notification_settings()
-    
-    with tab4:
-        show_system_settings()
-
-def show_api_settings():
-    """Display API configuration settings."""
-    st.subheader("API Configuration")
-    
-    st.write("""
-    Configure your Binance API credentials. These will be used to authenticate with the Binance API for trading.
-    
-    **⚠️ Important: All trading will be executed with real funds. Never use mock data or test net.**
-    """)
-    
-    # Get current API key from environment (masked)
-    current_api_key = os.environ.get('BINANCE_API_KEY', '')
-    masked_api_key = mask_string(current_api_key) if current_api_key else ""
-    
-    # Get current API secret from environment (masked)
-    current_api_secret = os.environ.get('BINANCE_API_SECRET', '')
-    masked_api_secret = mask_string(current_api_secret) if current_api_secret else ""
-    
-    # API Key input
-    new_api_key = st.text_input(
-        "API Key",
-        value=masked_api_key,
-        type="password" if masked_api_key else "default",
-        help="Your Binance API Key. This will be stored securely in environment variables."
-    )
-    
-    # API Secret input
-    new_api_secret = st.text_input(
-        "API Secret",
-        value=masked_api_secret,
-        type="password",
-        help="Your Binance API Secret. This will be stored securely in environment variables."
-    )
-    
-    # Button to save API credentials
-    if st.button("Save API Credentials"):
-        # Only save if they've been changed from the masked version
-        if new_api_key and new_api_key != masked_api_key:
-            os.environ['BINANCE_API_KEY'] = new_api_key
-            st.success("API Key saved!")
+    # General Settings Tab
+    with tabs[0]:
+        st.subheader("General Settings")
         
-        if new_api_secret and new_api_secret != masked_api_secret:
-            os.environ['BINANCE_API_SECRET'] = new_api_secret
-            st.success("API Secret saved!")
+        # Application mode
+        mode = st.selectbox(
+            "Trading Mode",
+            options=["paper", "live"],
+            index=0 if config.get("general", {}).get("mode", "paper") == "paper" else 1,
+            help="Paper trading uses simulated funds. Live trading uses real funds."
+        )
         
-        # If all credentials are set, update initialization status
-        if os.environ.get('BINANCE_API_KEY') and os.environ.get('BINANCE_API_SECRET'):
-            st.session_state.initialized = True
-    
-    # Test API connection button
-    if st.button("Test API Connection"):
-        if not (os.environ.get('BINANCE_API_KEY') and os.environ.get('BINANCE_API_SECRET')):
-            st.error("Please set API credentials first")
-        else:
-            # Here we would actually test the API connection
-            st.success("API connection successful!")
-            st.session_state.initialized = True
-
-def show_risk_settings():
-    """Display risk management settings."""
-    st.subheader("Risk Management")
-    
-    st.write("""
-    Configure risk management parameters to protect your capital. These settings apply across all trading strategies.
-    """)
-    
-    # Position sizing settings
-    st.write("### Position Sizing")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        max_position_pct = st.slider(
-            "Maximum Position Size (% of Portfolio)",
+        # Log level
+        log_level = st.selectbox(
+            "Log Level",
+            options=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            index=1 if config.get("general", {}).get("log_level", "INFO") == "INFO" else 0,
+            help="Set the verbosity of logs. DEBUG is most verbose."
+        )
+        
+        # Max open trades
+        max_open_trades = st.number_input(
+            "Maximum Open Trades",
             min_value=1,
             max_value=100,
-            value=10,
-            step=1,
-            help="Maximum percentage of portfolio value that can be allocated to a single position"
+            value=config.get("general", {}).get("max_open_trades", 5),
+            help="Maximum number of trades that can be open simultaneously."
         )
-    
-    with col2:
-        max_positions = st.number_input(
-            "Maximum Concurrent Positions",
-            min_value=1,
-            max_value=20,
-            value=5,
-            help="Maximum number of open positions allowed at any time"
-        )
-    
-    # Stop loss and take profit settings
-    st.write("### Stop Loss & Take Profit")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        use_stop_loss = st.checkbox("Use Stop Loss", value=True)
         
-        stop_loss_pct = st.slider(
-            "Stop Loss (%)",
-            min_value=1,
-            max_value=20,
-            value=5,
-            step=1,
-            help="Percentage loss at which a position will be automatically closed",
-            disabled=not use_stop_loss
+        # Stake amount
+        stake_amount = st.number_input(
+            "Stake Amount",
+            min_value=10.0,
+            value=float(config.get("general", {}).get("stake_amount", 100)),
+            help="Amount to use per trade."
         )
-    
-    with col2:
-        use_take_profit = st.checkbox("Use Take Profit", value=True)
         
-        take_profit_pct = st.slider(
-            "Take Profit (%)",
-            min_value=1,
-            max_value=50,
-            value=15,
-            step=1,
-            help="Percentage gain at which a position will be automatically closed",
-            disabled=not use_take_profit
+        # Save button for general settings
+        if st.button("Save General Settings"):
+            # Update config
+            if "general" not in config:
+                config["general"] = {}
+            
+            config["general"]["mode"] = mode
+            config["general"]["log_level"] = log_level
+            config["general"]["max_open_trades"] = int(max_open_trades)
+            config["general"]["stake_amount"] = float(stake_amount)
+            
+            if save_config(config):
+                st.success("General settings saved successfully!")
+            else:
+                st.error("Failed to save general settings.")
+    
+    # Exchange Settings Tab
+    with tabs[1]:
+        st.subheader("Exchange Settings")
+        
+        # Exchange selection
+        exchange = st.selectbox(
+            "Exchange",
+            options=["binance", "kucoin", "coinbase", "ftx"],
+            index=0 if config.get("exchange", {}).get("name", "binance") == "binance" else 1,
+            help="Select the exchange to trade on."
         )
-    
-    # Circuit breaker settings
-    st.write("### Circuit Breaker")
-    
-    use_circuit_breaker = st.checkbox(
-        "Use Circuit Breaker",
-        value=True,
-        help="Temporarily stop trading if certain conditions are met"
-    )
-    
-    if use_circuit_breaker:
-        col1, col2 = st.columns(2)
         
-        with col1:
-            daily_loss_threshold = st.slider(
-                "Daily Loss Threshold (%)",
-                min_value=1,
-                max_value=20,
-                value=5,
-                step=1,
-                help="Percentage of portfolio loss in a day that triggers the circuit breaker"
-            )
+        # API credentials
+        st.markdown("### API Credentials")
+        st.warning("For security, it's better to set API keys as environment variables or use Docker secrets.")
         
-        with col2:
-            cooldown_period = st.slider(
-                "Cooldown Period (hours)",
-                min_value=1,
-                max_value=72,
-                value=24,
-                step=1,
-                help="Hours to wait before resuming trading after circuit breaker is triggered"
-            )
-    
-    # Save risk settings button
-    if st.button("Save Risk Settings"):
-        # Here we would actually save these settings
-        st.success("Risk management settings saved successfully!")
-
-def show_notification_settings():
-    """Display notification settings."""
-    st.subheader("Notifications")
-    
-    st.write("""
-    Configure how and when you receive notifications about trading activity and system events.
-    """)
-    
-    # Notification channels
-    st.write("### Notification Channels")
-    
-    use_email = st.checkbox("Email Notifications", value=True)
-    
-    if use_email:
-        email_address = st.text_input(
-            "Email Address",
-            value="user@example.com"
-        )
-    
-    use_telegram = st.checkbox("Telegram Notifications", value=False)
-    
-    if use_telegram:
-        telegram_bot_token = st.text_input(
-            "Telegram Bot Token",
+        # Get current values
+        current_api_key = config.get("exchange", {}).get("api_key", "")
+        current_api_secret = config.get("exchange", {}).get("api_secret", "")
+        
+        # Display API key fields
+        api_key = st.text_input(
+            "API Key", 
+            value=current_api_key if current_api_key else os.environ.get("BINANCE_API_KEY", ""),
             type="password"
         )
         
-        telegram_chat_id = st.text_input(
-            "Telegram Chat ID"
+        api_secret = st.text_input(
+            "API Secret", 
+            value=current_api_secret if current_api_secret else os.environ.get("BINANCE_API_SECRET", ""),
+            type="password"
         )
+        
+        # Save button for exchange settings
+        if st.button("Save Exchange Settings"):
+            # Update config
+            if "exchange" not in config:
+                config["exchange"] = {}
+            
+            config["exchange"]["name"] = exchange
+            
+            # Only save API credentials if they're provided
+            if api_key:
+                config["exchange"]["api_key"] = api_key
+            if api_secret:
+                config["exchange"]["api_secret"] = api_secret
+            
+            if save_config(config):
+                st.success("Exchange settings saved successfully!")
+            else:
+                st.error("Failed to save exchange settings.")
+        
+        # Option to test API connection
+        if st.button("Test API Connection"):
+            st.info("This would test the API connection in a real implementation.")
+            # In a real implementation, this would test the connection
+            # For now, just display a message
+            if api_key and api_secret:
+                st.success("Connection test would happen here with the provided API keys.")
+            else:
+                st.error("API key and secret are required for connection testing.")
     
-    # Notification events
-    st.write("### Notification Events")
+    # Trading Pairs Tab
+    with tabs[2]:
+        st.subheader("Trading Pairs")
+        
+        # Get current pairs
+        current_pairs = config.get("pairs", [])
+        
+        # Display current pairs
+        st.markdown("### Current Trading Pairs")
+        
+        # Convert to multiline string for editing
+        if current_pairs:
+            pairs_text = "\n".join(current_pairs)
+        else:
+            pairs_text = "BTC/USDT\nETH/USDT"
+        
+        # Edit pairs
+        edited_pairs = st.text_area(
+            "Edit Trading Pairs (one per line)",
+            value=pairs_text,
+            height=200,
+            help="Enter one trading pair per line (e.g., BTC/USDT)."
+        )
+        
+        # Save button for pairs
+        if st.button("Save Trading Pairs"):
+            # Parse pairs
+            new_pairs = [p.strip() for p in edited_pairs.split("\n") if p.strip()]
+            
+            # Update config
+            config["pairs"] = new_pairs
+            
+            if save_config(config):
+                st.success(f"Trading pairs updated: {len(new_pairs)} pairs configured.")
+            else:
+                st.error("Failed to save trading pairs.")
+    
+    # Strategy Parameters Tab
+    with tabs[3]:
+        st.subheader("Strategy Parameters")
+        
+        # Get current strategy settings
+        current_strategy = config.get("strategy", {}).get("active", "rsi_strategy")
+        strategy_params = config.get("strategy", {}).get("params", {})
+        
+        # Strategy selection
+        available_strategies = ["rsi_strategy", "macd_strategy", "bollinger_strategy", "ml_strategy"]
+        selected_strategy = st.selectbox(
+            "Active Strategy",
+            options=available_strategies,
+            index=available_strategies.index(current_strategy) if current_strategy in available_strategies else 0,
+            help="Select the active trading strategy."
+        )
+        
+        # Parameters for the selected strategy
+        st.markdown(f"### Parameters for {selected_strategy}")
+        
+        # Get parameters for the selected strategy
+        params = strategy_params.get(selected_strategy, {})
+        
+        # Create input fields dynamically based on the selected strategy
+        new_params = {}
+        
+        if selected_strategy == "rsi_strategy":
+            new_params["timeframe"] = st.selectbox(
+                "Timeframe",
+                options=["1m", "5m", "15m", "1h", "4h", "1d"],
+                index=3,  # Default to 1h
+                key="rsi_timeframe",
+                help="Timeframe for RSI calculation."
+            )
+            
+            new_params["rsi_period"] = st.slider(
+                "RSI Period",
+                min_value=5,
+                max_value=30,
+                value=params.get("rsi_period", 14),
+                key="rsi_period",
+                help="Period for RSI calculation."
+            )
+            
+            new_params["rsi_overbought"] = st.slider(
+                "RSI Overbought Threshold",
+                min_value=50,
+                max_value=90,
+                value=params.get("rsi_overbought", 70),
+                key="rsi_overbought",
+                help="RSI value above which the market is considered overbought (sell signal)."
+            )
+            
+            new_params["rsi_oversold"] = st.slider(
+                "RSI Oversold Threshold",
+                min_value=10,
+                max_value=50,
+                value=params.get("rsi_oversold", 30),
+                key="rsi_oversold",
+                help="RSI value below which the market is considered oversold (buy signal)."
+            )
+            
+        elif selected_strategy == "macd_strategy":
+            new_params["timeframe"] = st.selectbox(
+                "Timeframe",
+                options=["1m", "5m", "15m", "1h", "4h", "1d"],
+                index=4,  # Default to 4h
+                key="macd_timeframe",
+                help="Timeframe for MACD calculation."
+            )
+            
+            new_params["fast_period"] = st.slider(
+                "Fast EMA Period",
+                min_value=5,
+                max_value=30,
+                value=params.get("fast_period", 12),
+                key="fast_period",
+                help="Period for the fast EMA in MACD calculation."
+            )
+            
+            new_params["slow_period"] = st.slider(
+                "Slow EMA Period",
+                min_value=10,
+                max_value=50,
+                value=params.get("slow_period", 26),
+                key="slow_period",
+                help="Period for the slow EMA in MACD calculation."
+            )
+            
+            new_params["signal_period"] = st.slider(
+                "Signal Period",
+                min_value=5,
+                max_value=20,
+                value=params.get("signal_period", 9),
+                key="signal_period",
+                help="Period for the signal line in MACD calculation."
+            )
+            
+        elif selected_strategy == "bollinger_strategy":
+            new_params["timeframe"] = st.selectbox(
+                "Timeframe",
+                options=["1m", "5m", "15m", "1h", "4h", "1d"],
+                index=3,  # Default to 1h
+                key="bb_timeframe",
+                help="Timeframe for Bollinger Bands calculation."
+            )
+            
+            new_params["window"] = st.slider(
+                "Window Period",
+                min_value=10,
+                max_value=50,
+                value=params.get("window", 20),
+                key="bb_window",
+                help="Window period for Bollinger Bands calculation."
+            )
+            
+            new_params["num_std_dev"] = st.slider(
+                "Number of Standard Deviations",
+                min_value=1.0,
+                max_value=3.0,
+                value=params.get("num_std_dev", 2.0),
+                step=0.1,
+                key="num_std_dev",
+                help="Number of standard deviations for Bollinger Bands width."
+            )
+            
+        elif selected_strategy == "ml_strategy":
+            new_params["timeframe"] = st.selectbox(
+                "Timeframe",
+                options=["1m", "5m", "15m", "1h", "4h", "1d"],
+                index=3,  # Default to 1h
+                key="ml_timeframe",
+                help="Timeframe for ML strategy."
+            )
+            
+            new_params["model_id"] = st.text_input(
+                "Model ID",
+                value=params.get("model_id", "latest"),
+                key="model_id",
+                help="ID of the ML model to use. Use 'latest' for the most recent model."
+            )
+            
+            new_params["confidence_threshold"] = st.slider(
+                "Confidence Threshold",
+                min_value=0.5,
+                max_value=0.95,
+                value=params.get("confidence_threshold", 0.65),
+                step=0.05,
+                key="confidence_threshold",
+                help="Minimum confidence level required for a trade signal."
+            )
+        
+        # Common parameters for all strategies
+        st.markdown("### Common Strategy Parameters")
+        
+        new_params["trailing_stop_pct"] = st.slider(
+            "Trailing Stop (%)",
+            min_value=0.5,
+            max_value=10.0,
+            value=params.get("trailing_stop_pct", 5.0),
+            step=0.5,
+            help="Trailing stop percentage for active trades."
+        )
+        
+        new_params["stop_loss_pct"] = st.slider(
+            "Stop Loss (%)",
+            min_value=0.5,
+            max_value=10.0,
+            value=params.get("stop_loss_pct", 3.0),
+            step=0.5,
+            help="Stop loss percentage for trades."
+        )
+        
+        new_params["take_profit_pct"] = st.slider(
+            "Take Profit (%)",
+            min_value=0.5,
+            max_value=15.0,
+            value=params.get("take_profit_pct", 5.0),
+            step=0.5,
+            help="Take profit percentage for trades."
+        )
+        
+        # Save button for strategy parameters
+        if st.button("Save Strategy Parameters"):
+            # Update config
+            if "strategy" not in config:
+                config["strategy"] = {}
+            
+            config["strategy"]["active"] = selected_strategy
+            
+            if "params" not in config["strategy"]:
+                config["strategy"]["params"] = {}
+            
+            config["strategy"]["params"][selected_strategy] = new_params
+            
+            if save_config(config):
+                st.success(f"Strategy parameters for {selected_strategy} saved successfully!")
+            else:
+                st.error("Failed to save strategy parameters.")
+    
+    # Risk Management Tab
+    with tabs[4]:
+        st.subheader("Risk Management")
+        
+        risk_config = config.get("risk", {})
+        
+        # Maximum risk per trade
+        max_risk_per_trade = st.slider(
+            "Maximum Risk Per Trade (%)",
+            min_value=0.1,
+            max_value=10.0,
+            value=risk_config.get("max_risk_per_trade", 2.0),
+            step=0.1,
+            help="Maximum percentage of portfolio to risk on a single trade."
+        )
+        
+        # Maximum risk per day
+        max_risk_per_day = st.slider(
+            "Maximum Risk Per Day (%)",
+            min_value=1.0,
+            max_value=20.0,
+            value=risk_config.get("max_risk_per_day", 10.0),
+            step=0.5,
+            help="Maximum percentage of portfolio that can be risked in a day."
+        )
+        
+        # Maximum drawdown
+        max_drawdown_pct = st.slider(
+            "Maximum Drawdown (%)",
+            min_value=5.0,
+            max_value=30.0,
+            value=risk_config.get("max_drawdown_pct", 15.0),
+            step=1.0,
+            help="Maximum drawdown percentage before stopping trading."
+        )
+        
+        # Save button for risk management
+        if st.button("Save Risk Management Settings"):
+            # Update config
+            if "risk" not in config:
+                config["risk"] = {}
+            
+            config["risk"]["max_risk_per_trade"] = max_risk_per_trade
+            config["risk"]["max_risk_per_day"] = max_risk_per_day
+            config["risk"]["max_drawdown_pct"] = max_drawdown_pct
+            
+            if save_config(config):
+                st.success("Risk management settings saved successfully!")
+            else:
+                st.error("Failed to save risk management settings.")
+    
+    # Notifications Tab
+    with tabs[5]:
+        st.subheader("Notifications")
+        
+        notify_config = config.get("notifications", {})
+        
+        # Telegram notifications
+        st.markdown("### Telegram Notifications")
+        
+        telegram_config = notify_config.get("telegram", {})
+        telegram_enabled = st.checkbox(
+            "Enable Telegram Notifications",
+            value=telegram_config.get("enabled", False),
+            help="Send trade and system notifications to Telegram."
+        )
+        
+        if telegram_enabled:
+            telegram_token = st.text_input(
+                "Telegram Bot Token",
+                value=telegram_config.get("token", ""),
+                type="password",
+                help="Your Telegram bot token from BotFather."
+            )
+            
+            telegram_chat_id = st.text_input(
+                "Chat ID",
+                value=telegram_config.get("chat_id", ""),
+                help="Your Telegram chat ID or group ID."
+            )
+        else:
+            telegram_token = ""
+            telegram_chat_id = ""
+        
+        # Email notifications
+        st.markdown("### Email Notifications")
+        
+        email_config = notify_config.get("email", {})
+        email_enabled = st.checkbox(
+            "Enable Email Notifications",
+            value=email_config.get("enabled", False),
+            help="Send trade and system notifications via email."
+        )
+        
+        if email_enabled:
+            email_server = st.text_input(
+                "SMTP Server",
+                value=email_config.get("smtp_server", "smtp.gmail.com"),
+                help="SMTP server address."
+            )
+            
+            email_port = st.number_input(
+                "SMTP Port",
+                min_value=1,
+                max_value=65535,
+                value=email_config.get("smtp_port", 587),
+                help="SMTP server port."
+            )
+            
+            email_username = st.text_input(
+                "SMTP Username",
+                value=email_config.get("username", ""),
+                help="Your email username."
+            )
+            
+            email_password = st.text_input(
+                "SMTP Password",
+                value=email_config.get("password", ""),
+                type="password",
+                help="Your email password or app password."
+            )
+            
+            email_from = st.text_input(
+                "From Email",
+                value=email_config.get("from_email", ""),
+                help="Sender email address."
+            )
+            
+            email_to = st.text_input(
+                "To Email",
+                value=email_config.get("to_email", ""),
+                help="Recipient email address."
+            )
+        else:
+            email_server = "smtp.gmail.com"
+            email_port = 587
+            email_username = ""
+            email_password = ""
+            email_from = ""
+            email_to = ""
+        
+        # Save button for notifications
+        if st.button("Save Notification Settings"):
+            # Update config
+            if "notifications" not in config:
+                config["notifications"] = {}
+            
+            config["notifications"]["telegram"] = {
+                "enabled": telegram_enabled,
+                "token": telegram_token,
+                "chat_id": telegram_chat_id
+            }
+            
+            config["notifications"]["email"] = {
+                "enabled": email_enabled,
+                "smtp_server": email_server,
+                "smtp_port": email_port,
+                "username": email_username,
+                "password": email_password,
+                "from_email": email_from,
+                "to_email": email_to
+            }
+            
+            if save_config(config):
+                st.success("Notification settings saved successfully!")
+            else:
+                st.error("Failed to save notification settings.")
+    
+    # Export/Import Configuration
+    st.markdown("---")
+    st.subheader("Export/Import Configuration")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        notify_trades = st.checkbox("Trade Executions", value=True)
-        notify_errors = st.checkbox("System Errors", value=True)
-        notify_circuit_breaker = st.checkbox("Circuit Breaker Events", value=True)
-    
-    with col2:
-        notify_daily_summary = st.checkbox("Daily Performance Summary", value=True)
-        notify_profit_threshold = st.checkbox("Profit Threshold Reached", value=False)
-        notify_loss_threshold = st.checkbox("Loss Threshold Reached", value=True)
-    
-    # Threshold settings if enabled
-    if notify_profit_threshold:
-        profit_threshold = st.slider(
-            "Profit Notification Threshold (%)",
-            min_value=1,
-            max_value=50,
-            value=10,
-            step=1
-        )
-    
-    if notify_loss_threshold:
-        loss_threshold = st.slider(
-            "Loss Notification Threshold (%)",
-            min_value=1,
-            max_value=20,
-            value=5,
-            step=1
-        )
-    
-    # Save notification settings button
-    if st.button("Save Notification Settings"):
-        # Here we would actually save these settings
-        st.success("Notification settings saved successfully!")
-
-def show_system_settings():
-    """Display system settings."""
-    st.subheader("System Settings")
-    
-    st.write("""
-    Configure general system settings and manage data storage.
-    """)
-    
-    # Trading session settings
-    st.write("### Trading Hours")
-    
-    trade_24_7 = st.checkbox("Trade 24/7", value=True)
-    
-    if not trade_24_7:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            trading_start_time = st.time_input(
-                "Trading Start Time (UTC)",
-                value=datetime.strptime("08:00", "%H:%M").time()
-            )
-        
-        with col2:
-            trading_end_time = st.time_input(
-                "Trading End Time (UTC)",
-                value=datetime.strptime("20:00", "%H:%M").time()
-            )
-    
-    # Data storage settings
-    st.write("### Data Storage")
-    
-    data_retention_days = st.slider(
-        "Data Retention Period (days)",
-        min_value=30,
-        max_value=365,
-        value=90,
-        step=30
-    )
-    
-    # Current data usage
-    st.write("### Data Usage")
-    
-    data_usage = {
-        "Market Data": 1.2,
-        "Trading History": 0.3,
-        "Performance Metrics": 0.1,
-        "Strategy Models": 0.5,
-        "System Logs": 0.2
-    }
-    
-    df_usage = pd.DataFrame({
-        "Category": list(data_usage.keys()),
-        "Size (GB)": list(data_usage.values())
-    })
-    
-    st.dataframe(df_usage, use_container_width=True)
-    
-    total_usage = sum(data_usage.values())
-    st.info(f"Total data usage: {total_usage:.1f} GB")
-    
-    # Data cleanup button
-    if st.button("Clean Up Old Data"):
-        # Here we would actually clean up old data
-        st.success("Old data cleaned up successfully!")
-    
-    # Backup and restore
-    st.write("### Backup & Restore")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Create System Backup"):
-            # Here we would actually create a backup
-            now = datetime.now().strftime("%Y%m%d_%H%M%S")
-            st.success(f"Backup created: trading_bot_backup_{now}.zip")
+        # Export configuration
+        if st.button("Export Configuration"):
+            # Remove sensitive information
+            export_config = config.copy()
+            
+            if "exchange" in export_config and "api_key" in export_config["exchange"]:
+                export_config["exchange"]["api_key"] = ""
+            if "exchange" in export_config and "api_secret" in export_config["exchange"]:
+                export_config["exchange"]["api_secret"] = ""
+            
+            if "notifications" in export_config and "telegram" in export_config["notifications"]:
+                export_config["notifications"]["telegram"]["token"] = ""
+            
+            if "notifications" in export_config and "email" in export_config["notifications"]:
+                export_config["notifications"]["email"]["password"] = ""
+            
+            # Convert to YAML
+            yaml_str = yaml.dump(export_config, default_flow_style=False)
+            
+            # Provide download link
             st.download_button(
-                label="Download Backup",
-                data="placeholder_data",
-                file_name=f"trading_bot_backup_{now}.zip",
-                mime="application/zip"
+                label="Download Configuration",
+                data=yaml_str,
+                file_name="trading_bot_config.yaml",
+                mime="text/yaml"
             )
     
     with col2:
-        uploaded_file = st.file_uploader("Restore from Backup", type="zip")
+        # Import configuration
+        uploaded_file = st.file_uploader("Import Configuration", type=["yaml", "yml"])
         
         if uploaded_file is not None:
-            if st.button("Restore System"):
-                # Here we would actually restore from the backup
-                st.success("System restored successfully from backup!")
-    
-    # Save system settings button
-    if st.button("Save System Settings"):
-        # Here we would actually save these settings
-        st.success("System settings saved successfully!")
+            try:
+                imported_config = yaml.safe_load(uploaded_file)
+                
+                if st.button("Apply Imported Configuration"):
+                    # Merge with existing configuration
+                    # This preserves sensitive information that might be in the current config
+                    if "exchange" in imported_config and "api_key" not in imported_config["exchange"]:
+                        if "exchange" in config and "api_key" in config["exchange"]:
+                            imported_config["exchange"]["api_key"] = config["exchange"]["api_key"]
+                    
+                    if "exchange" in imported_config and "api_secret" not in imported_config["exchange"]:
+                        if "exchange" in config and "api_secret" in config["exchange"]:
+                            imported_config["exchange"]["api_secret"] = config["exchange"]["api_secret"]
+                    
+                    # Save the imported configuration
+                    if save_config(imported_config):
+                        st.success("Configuration imported successfully! Please refresh the page to see changes.")
+                    else:
+                        st.error("Failed to import configuration.")
+            except Exception as e:
+                st.error(f"Error importing configuration: {str(e)}")
 
-def mask_string(s):
-    """Mask a string to hide all but the first and last few characters."""
-    if len(s) <= 8:
-        return "*" * len(s)
-    
-    return s[:4] + "*" * (len(s) - 8) + s[-4:] 
+if __name__ == "__main__":
+    # For testing the page individually
+    show(load_config()) 

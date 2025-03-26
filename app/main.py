@@ -7,6 +7,7 @@ import asyncio
 import logging
 import argparse
 from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Add the app directory to the path
@@ -21,8 +22,7 @@ logging.basicConfig(
     level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.path.join('data', 'logs', f'trading_bot_{datetime.now().strftime("%Y%m%d")}.log'))
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -35,10 +35,9 @@ load_dotenv()
 
 # Import project modules
 try:
-    from app.data_collection.binance_data import BinanceDataCollector
-    from app.strategies.rule_based import RuleBasedStrategy
-    from app.strategies.ml_strategy import MLStrategy
-    from app.strategies.rl_strategy import RLStrategy
+    from app.data_collection.exchange_client import ExchangeClient
+    from app.data_collection.market_data import MarketDataManager
+    from app.strategies.strategy_manager import StrategyManager
     from app.utils.risk_management import RiskManager
     from app.utils.notifications import NotificationManager
     
@@ -50,215 +49,203 @@ except ImportError as e:
 class TradingBot:
     """Main class for the trading bot application."""
     
-    def __init__(self, debug=False):
-        """Initialize the trading bot."""
+    def __init__(self, api_key=None, api_secret=None, debug=False):
+        """
+        Initialize the trading bot.
+        
+        Args:
+            api_key (str): API key for the exchange
+            api_secret (str): API secret for the exchange
+            debug (bool): Enable debug mode
+        """
         self.debug = debug
+        
+        # Set up logging level based on debug flag
         if self.debug:
-            logger.debug("Initializing TradingBot in debug mode")
+            logger.setLevel(logging.DEBUG)
+            logger.debug("Debug mode enabled, using verbose logging")
             
-        self.api_key = os.environ.get('BINANCE_API_KEY')
-        self.api_secret = os.environ.get('BINANCE_API_SECRET')
+            # Create logs directory if it doesn't exist
+            log_dir = Path("data/logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Add file handler
+            try:
+                log_file = log_dir / f"trading_bot_{datetime.now().strftime('%Y%m%d')}.log"
+                file_handler = logging.FileHandler(log_file)
+                file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+                logging.getLogger().addHandler(file_handler)
+                logger.debug(f"Logging to file: {log_file}")
+            except Exception as e:
+                logger.warning(f"Could not set up log file: {e}")
         
-        if not self.api_key or not self.api_secret:
-            if self.debug:
-                logger.debug("Debug mode: Using mock API credentials")
-                self.api_key = "debug_api_key"
-                self.api_secret = "debug_api_secret"
-            else:
-                logger.error("Binance API credentials not found in environment variables")
-                sys.exit(1)
-        
+        # Create directories if they don't exist
+        for directory in ["data", "data/logs", "data/historical", "data/models"]:
+            os.makedirs(directory, exist_ok=True)
+            
         # Initialize components
-        self.data_collector = None
-        self.risk_manager = None
-        self.notification_manager = None
-        self.strategies = {}
+        self.exchange_client = ExchangeClient(api_key, api_secret, debug=debug)
+        self.risk_manager = RiskManager(debug=debug)
+        self.notification_manager = NotificationManager(debug=debug)
+        self.market_data = MarketDataManager(self.exchange_client, debug=debug)
         
-        # Trading parameters
-        self.trading_pairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']  # Default pairs
+        # Initialize strategy manager last since it depends on other components
+        self.strategy_manager = StrategyManager(
+            self.exchange_client,
+            self.market_data,
+            self.risk_manager,
+            debug=debug
+        )
+        
+        # Set initial state
         self.is_running = False
-        
-        logger.info("Trading bot initialized")
-    
-    async def setup(self):
-        """Set up all components of the trading bot."""
-        try:
-            logger.debug("Setting up trading bot components")
-            
-            # Initialize data collector
-            self.data_collector = BinanceDataCollector(
-                api_key=self.api_key,
-                api_secret=self.api_secret,
-                trading_pairs=self.trading_pairs,
-                debug=self.debug
-            )
-            
-            # Initialize risk manager
-            self.risk_manager = RiskManager(debug=self.debug)
-            
-            # Initialize notification manager
-            self.notification_manager = NotificationManager(debug=self.debug)
-            
-            # Initialize strategies
-            self.strategies['rule_based'] = RuleBasedStrategy(
-                data_collector=self.data_collector,
-                risk_manager=self.risk_manager,
-                debug=self.debug
-            )
-            
-            self.strategies['ml'] = MLStrategy(
-                data_collector=self.data_collector,
-                risk_manager=self.risk_manager,
-                debug=self.debug
-            )
-            
-            self.strategies['rl'] = RLStrategy(
-                data_collector=self.data_collector,
-                risk_manager=self.risk_manager,
-                debug=self.debug
-            )
-            
-            logger.info("All components successfully initialized")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error during setup: {e}")
-            return False
+        self.start_time = None
+        self.watch_symbols = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT"]
     
     async def start(self):
         """Start the trading bot."""
         if self.is_running:
             logger.warning("Trading bot is already running")
-            return
+            return False
         
-        # Set up components
-        setup_success = await self.setup()
-        if not setup_success:
-            logger.error("Failed to set up trading bot components")
-            return
-        
+        logger.info("Starting trading bot...")
         self.is_running = True
-        logger.info("Trading bot started")
-        
-        if self.debug:
-            logger.debug("Debug mode: Trading bot will run with simulated trading")
+        self.start_time = datetime.now()
         
         try:
-            # Start data collection
-            await self.data_collector.start_data_collection()
+            # Initialize exchange connection
+            if not self.debug:
+                await self.exchange_client.initialize()
+                logger.info("Connected to exchange")
+            else:
+                logger.debug("Debug mode: Skipping exchange connection")
             
-            # Run the main trading loop
-            await self.run_trading_loop()
+            # Load active strategies
+            await self.strategy_manager.load_strategies()
+            
+            # Start market data collection for watched symbols
+            await self.market_data.start(self.watch_symbols)
+            
+            # Start the main trading loop
+            await self.run()
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error in trading bot: {e}")
+            logger.error(f"Error starting trading bot: {e}")
             self.is_running = False
-            
-            # Send notification about the error
-            await self.notification_manager.send_alert(
-                f"Trading bot error: {e}",
-                level="critical"
-            )
-    
-    async def run_trading_loop(self):
-        """Main trading loop for the bot."""
-        while self.is_running:
-            try:
-                # Get latest market data
-                market_data = await self.data_collector.get_latest_data()
-                
-                if self.debug:
-                    logger.debug(f"Got latest market data: {len(market_data)} symbols")
-                
-                # Check if circuit breaker is active
-                if self.risk_manager.is_circuit_breaker_active():
-                    logger.warning("Circuit breaker active - pausing trading")
-                    await asyncio.sleep(60)  # Check again in 1 minute
-                    continue
-                
-                # Execute strategies
-                for strategy_name, strategy in self.strategies.items():
-                    if strategy.is_enabled():
-                        if self.debug:
-                            logger.debug(f"Generating signals for {strategy_name} strategy")
-                            
-                        signals = await strategy.generate_signals(market_data)
-                        
-                        # Apply risk management to signals
-                        filtered_signals = self.risk_manager.filter_signals(signals)
-                        
-                        if self.debug:
-                            logger.debug(f"Generated {len(signals)} signals, {len(filtered_signals)} passed risk filters")
-                        
-                        # Execute signals if any
-                        if filtered_signals:
-                            await self.execute_signals(strategy_name, filtered_signals)
-                
-                # Sleep to avoid API rate limits
-                await asyncio.sleep(1)
-                
-            except Exception as e:
-                logger.error(f"Error in trading loop: {e}")
-                await asyncio.sleep(10)  # Wait and retry
-    
-    async def execute_signals(self, strategy_name, signals):
-        """Execute trading signals."""
-        for signal in signals:
-            try:
-                # Log the signal
-                logger.info(f"Executing signal from {strategy_name}: {signal}")
-                
-                if self.debug:
-                    logger.debug(f"Debug mode: Simulating trade execution for signal: {signal}")
-                    # Simulate successful trade execution
-                    result = {
-                        'symbol': signal.get('symbol'),
-                        'order_id': 12345,
-                        'side': signal.get('side'),
-                        'quantity': signal.get('amount'),
-                        'price': signal.get('price'),
-                        'status': 'FILLED',
-                        'timestamp': datetime.now().timestamp() * 1000
-                    }
-                else:
-                    # Execute the trade through data collector (which has trading methods)
-                    result = await self.data_collector.execute_trade(signal)
-                
-                # Update risk manager with the new position
-                self.risk_manager.update_positions(result)
-                
-                # Send notification if significant trade
-                if signal.get('amount', 0) * signal.get('price', 0) > 1000:  # If trade > $1000
-                    await self.notification_manager.send_alert(
-                        f"Executed {signal.get('side')} trade of {signal.get('amount')} "
-                        f"{signal.get('symbol')} at {signal.get('price')}",
-                        level="info"
-                    )
-                    
-            except Exception as e:
-                logger.error(f"Error executing signal {signal}: {e}")
+            return False
     
     async def stop(self):
         """Stop the trading bot."""
         if not self.is_running:
             logger.warning("Trading bot is not running")
-            return
+            return False
         
-        self.is_running = False
         logger.info("Stopping trading bot...")
         
-        # Stop data collection
-        if self.data_collector:
-            await self.data_collector.stop_data_collection()
+        try:
+            # Stop market data collection
+            await self.market_data.stop()
             
-        logger.info("Trading bot stopped")
+            # Close exchange connection
+            if not self.debug:
+                await self.exchange_client.close()
+            
+            self.is_running = False
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error stopping trading bot: {e}")
+            return False
+    
+    async def run(self):
+        """Main trading loop."""
+        while self.is_running:
+            try:
+                # Update market data
+                await self.market_data.update()
+                
+                # Generate signals from strategies
+                signals = await self.strategy_manager.generate_signals()
+                
+                # Apply risk management to filter signals
+                filtered_signals = self.risk_manager.filter_signals(signals)
+                
+                # Execute trades for filtered signals
+                if filtered_signals:
+                    logger.info(f"Executing trades for {len(filtered_signals)} signals")
+                    for symbol, signal in filtered_signals.items():
+                        await self.execute_trade(symbol, signal)
+                
+                # Sleep for a short period
+                await asyncio.sleep(5)
+                
+            except Exception as e:
+                logger.error(f"Error in trading loop: {e}")
+                await asyncio.sleep(10)  # Sleep longer on error
+    
+    async def execute_trade(self, symbol, signal):
+        """
+        Execute a trade based on a signal.
         
-        # Send notification
-        if self.notification_manager:
-            await self.notification_manager.send_alert(
-                "Trading bot stopped",
-                level="warning"
+        Args:
+            symbol (str): Symbol to trade
+            signal (dict): Signal dictionary with action, confidence, etc.
+        """
+        try:
+            # Log the signal
+            logger.info(f"Executing trade for {symbol}: {signal['action']} with confidence {signal['confidence']}")
+            
+            # Skip actual execution in debug mode
+            if self.debug:
+                logger.debug(f"Debug mode: Skipping actual trade execution for {symbol}")
+                
+                # Create a mock trade result
+                trade_result = {
+                    'symbol': symbol,
+                    'side': signal['action'],
+                    'amount': signal['position_size'] * 1000,  # Mock amount
+                    'price': signal.get('price', 50000.0),  # Mock price
+                    'realized_pnl': 0.0
+                }
+                
+                # Update risk manager with mock trade
+                self.risk_manager.update_positions(trade_result)
+                return trade_result
+            
+            # Execute the trade
+            if signal['action'] == 'BUY':
+                trade_result = await self.exchange_client.create_market_buy_order(
+                    symbol, 
+                    signal['position_size']
+                )
+            else:  # SELL
+                trade_result = await self.exchange_client.create_market_sell_order(
+                    symbol, 
+                    signal['position_size']
+                )
+            
+            # Update risk manager with trade result
+            self.risk_manager.update_positions(trade_result)
+            
+            # Send notification
+            await self.notification_manager.send_message(
+                f"Trade executed: {signal['action']} {symbol} at {trade_result['price']}"
             )
+            
+            return trade_result
+            
+        except Exception as e:
+            logger.error(f"Error executing trade for {symbol}: {e}")
+            
+            # Send notification about error
+            await self.notification_manager.send_message(
+                f"Trade execution failed for {symbol}: {str(e)}",
+                level="error"
+            )
+            
+            return None
 
 def start_streamlit():
     """Start the Streamlit web interface."""

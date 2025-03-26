@@ -1,0 +1,216 @@
+# Trading Bot Configuration
+# Copy this file to config.yaml and edit as needed
+
+# General Settings
+general:
+  app_name: Crypto Trading Bot
+  mode: paper  # 'paper' or 'live'
+  base_currency: USDT
+  log_level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  max_open_trades: 5
+  stake_amount: 100  # Amount to use per trade
+  stake_currency: USDT
+
+# Exchange Configuration
+exchange:
+  name: binance  # Currently supports: binance
+  # API credentials (DO NOT store in this file for production use)
+  # Better to use environment variables or Docker secrets
+  api_key: ""
+  api_secret: ""
+  # API connection settings
+  ccxt_config:
+    enableRateLimit: true
+    timeout: 60000  # milliseconds
+
+# Trading pairs to monitor and trade
+pairs:
+  - BTC/USDT
+  - ETH/USDT
+  - BNB/USDT
+  - SOL/USDT
+  - ADA/USDT
+  - XRP/USDT
+  - DOT/USDT
+  - AVAX/USDT
+  - LINK/USDT
+  - MATIC/USDT
+
+# Timeframes to collect data for
+timeframes:
+  - 1m
+  - 5m
+  - 15m
+  - 1h
+  - 4h
+  - 1d
+
+# Strategy Configuration
+strategy:
+  # Active strategy to use
+  active: rsi_strategy
+  # Strategy-specific parameters
+  params:
+    rsi_strategy:
+      timeframe: 1h
+      rsi_period: 14
+      rsi_overbought: 70
+      rsi_oversold: 30
+      trailing_stop_pct: 5.0
+      stop_loss_pct: 3.0
+      take_profit_pct: 5.0
+    macd_strategy:
+      timeframe: 4h
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+      trailing_stop_pct: 5.0
+      stop_loss_pct: 3.0
+      take_profit_pct: 6.0
+    bollinger_strategy:
+      timeframe: 1h
+      window: 20
+      num_std_dev: 2.0
+      trailing_stop_pct: 4.0
+      stop_loss_pct: 2.5
+      take_profit_pct: 5.0
+    ml_strategy:
+      timeframe: 1h
+      model_id: latest  # 'latest' or specific model ID
+      confidence_threshold: 0.65
+      trailing_stop_pct: 4.0
+      stop_loss_pct: 2.5
+      take_profit_pct: 5.0
+
+# Risk Management
+risk:
+  max_risk_per_trade: 2.0  # Maximum percentage of portfolio to risk per trade
+  max_risk_per_day: 10.0  # Maximum percentage of portfolio to risk per day
+  max_drawdown_pct: 15.0  # Maximum drawdown percentage before stopping trading
+  stop_loss_pct: 3.0  # Default stop loss percentage
+  trailing_stop: true  # Whether to use trailing stops
+  trailing_stop_pct: 1.5  # Trailing stop percentage
+  
+# Database Configuration
+database:
+  type: sqlite  # 'sqlite' or 'postgresql'
+  # SQLite settings
+  sqlite_path: "data/trading_bot.db"
+  # PostgreSQL settings (only used if type is 'postgresql')
+  postgres:
+    host: localhost
+    port: 5432
+    user: crypto
+    password: crypto_password
+    database: trading_bot
+
+# Notifications
+notifications:
+  # Telegram notifications
+  telegram:
+    enabled: false
+    token: ""
+    chat_id: ""
+  # Email notifications
+  email:
+    enabled: false
+    smtp_server: smtp.gmail.com
+    smtp_port: 587
+    username: ""
+    password: ""
+    from_email: ""
+    to_email: ""
+
+# Data Collection
+data:
+  # Historical data settings
+  historical_data:
+    storage_path: "data/historical"
+    source: exchange  # 'exchange' or 'api'
+    update_interval: 3600  # seconds
+  # Feature engineering
+  features:
+    # Technical indicators to calculate
+    indicators:
+      - name: rsi
+        params:
+          period: 14
+      - name: macd
+        params:
+          fast_period: 12
+          slow_period: 26
+          signal_period: 9
+      - name: bollinger_bands
+        params:
+          window: 20
+          num_std_dev: 2
+      - name: atr
+        params:
+          period: 14
+      - name: ema
+        params:
+          period: 9
+      - name: ema
+        params:
+          period: 21
+      - name: ema
+        params:
+          period: 50
+      - name: ema
+        params:
+          period: 200
+
+# Machine Learning Settings
+ml:
+  # MLflow settings
+  mlflow:
+    tracking_uri: "http://localhost:5000"
+    experiment_name: "crypto_price_prediction"
+  # Data preparation
+  data_prep:
+    train_test_split: 0.8
+    validation_size: 0.1
+    sequence_length: 60
+    target_column: "close"
+    scaling: "minmax"  # 'minmax', 'standard'
+  # Model settings
+  models:
+    lstm:
+      enabled: true
+      layers: [64, 32]
+      dropout: 0.2
+      optimizer: "adam"
+      learning_rate: 0.001
+      batch_size: 64
+      epochs: 100
+      early_stopping: true
+      patience: 10
+    xgboost:
+      enabled: true
+      max_depth: 6
+      learning_rate: 0.1
+      n_estimators: 100
+      subsample: 0.8
+      colsample_bytree: 0.8
+    prophet:
+      enabled: false
+      changepoint_prior_scale: 0.05
+      seasonality_prior_scale: 10
+      daily_seasonality: true
+      weekly_seasonality: true
+
+# Backtesting Settings
+backtesting:
+  start_date: "2023-01-01"
+  end_date: "2023-12-31"
+  commission: 0.1  # Percentage (%)
+  use_trailing_stop: true
+
+# Web Interface Settings
+ui:
+  theme: dark  # 'dark' or 'light'
+  update_interval: 15  # seconds
+  chart_height: 500  # pixels
+  default_page: "dashboard"  # 'dashboard', 'trading', 'backtesting', etc.
+  refresh_rate: 5  # seconds
+  trading_pairs_per_page: 10 
