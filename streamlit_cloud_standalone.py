@@ -40,10 +40,6 @@ except Exception as e:
 # Set environment variables for debug mode
 os.environ['TRADING_BOT_DEBUG'] = '1'
 
-# Add the app directory to the path
-current_dir = Path(__file__).parent
-sys.path.insert(0, str(current_dir))
-
 logger = logging.getLogger(__name__)
 
 # Mock Data Class (standalone version of SharedState)
