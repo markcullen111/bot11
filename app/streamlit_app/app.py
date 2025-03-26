@@ -240,6 +240,7 @@ def main():
         except Exception as e:
             st.error(f"Error displaying page: {str(e)}")
             logger.error(f"Error displaying page {selection}: {str(e)}")
+            logger.exception("Full traceback:")
     else:
         st.error("Page not found!")
 
