@@ -1,0 +1,295 @@
+README: Fully Autonomous Binance UK Trading Bot
+1. Project Overview
+
+This repository aims to build a fully autonomous cryptocurrency trading bot that operates on Binance UK. It combines rule-based strategies, machine learning (ML), and reinforcement learning (RL) to make trading decisions. The bot must run inside a single Docker container and provide a Streamlit web GUI for real-time monitoring, performance analytics, and strategy controls.
+
+Key Features & Goals:
+
+    Integration with Binance UK via the python-binance GitHub repo for REST and WebSocket data.
+
+    Multi-strategy approach:
+
+        Rule-Based (Trend Following, Mean Reversion).
+
+        ML (using scikit-learn on GitHub).
+
+        RL (using Stable Baselines3 on GitHub — PPO, SAC, TD3).
+
+    Data Storage in Parquet files for time-series data (1m, 5m, 1h, daily).
+
+    Backtesting & Hyperparameter Tuning with Optuna on GitHub.
+
+    Experiment Tracking with MLflow on GitHub (PnL, Sharpe, drawdowns, etc.).
+
+    Risk Management (stop-loss, position sizing, circuit breaker).
+
+    CI/CD with GitHub Actions:
+
+        Automated testing, backtesting, Docker builds, and deployment.
+
+    Streamlit GUI (on port 8501) for:
+
+        Real-time metrics (PnL, open positions).
+
+        Historical performance graphs.
+
+        Strategy toggles and risk settings.
+
+        Logs & alerts view (with optional Telegram integration).
+
+2. Requirements & Constraints
+
+    Python 3.9+ Only
+
+        All code must be written in Python 3.9+ with no alternative languages or frameworks.
+
+    Docker Containerization
+
+        A single Dockerfile at the repo root builds an image with all dependencies.
+
+        No other container solutions (e.g., Docker Compose, Kubernetes) are permitted.
+
+        Refer to the Docker docs and Docker’s GitHub org if needed.
+
+    Rate Limiting
+
+        Use a token bucket or fixed sleep intervals to comply with Binance’s strict request quotas.
+
+    Credential Management
+
+        Binance API keys must be stored as environment variables or secrets in a vault.
+
+        Never hard-code credentials in source files.
+
+    Binance UK Compliance & Logging
+
+        Must store trade logs for regulatory/audit requirements.
+
+        Follow minimal permissions for API keys (trading only, no withdrawal permissions).
+
+    Risk Controls
+
+        Mandatory stop-loss and take-profit.
+
+        Circuit breaker that halts trading if daily loss threshold is reached.
+
+        Reinforcement Learning must include safe exploration (max position size capped, drawdown penalties, etc.).
+
+3. Data Collection & Storage
+
+    Time-Series Data: Store 1m, 5m, 1h, and daily bars in Parquet files locally.
+
+    Indicators: SMA, EMA, RSI, Bollinger Bands, VWAP, MACD, plus any custom features.
+
+    Vectorized Feature Engineering using Pandas & NumPy.
+
+    (Optional) Order Book Snapshots: If capturing them, also store in Parquet.
+
+4. Multi-Strategy Architecture
+
+    Rule-Based Strategies:
+
+        Trend Following
+
+        Mean Reversion
+
+    ML Strategies:
+
+        scikit-learn for classification/regression.
+
+    RL Strategies:
+
+        Stable Baselines3 (PPO, SAC, TD3).
+
+        Include a custom Gym-like environment for safe exploration and reward shaping.
+
+Strategy Manager: A central orchestrator that enables or disables specific strategies, funnels data into them, and handles order execution decisions.
+5. Backtesting & Hyperparameter Tuning
+
+    Backtester Module:
+
+        Loads Parquet data.
+
+        Simulates trades for each strategy over multi-year periods.
+
+        Logs PnL, drawdown, Sharpe, Sortino to MLflow.
+
+    Optuna:
+
+        Optuna automates hyperparameter tuning.
+
+        Stores each tuning run in MLflow for reproducibility.
+
+6. Online & Offline Learning
+
+    Offline/Batch Retraining:
+
+        Scheduled retraining (e.g., every 24 hours) with fresh data (Parquet files).
+
+        Compare new model performance vs. currently deployed model in MLflow.
+
+    Online/Incremental Learning (Optional):
+
+        If feasible, update models in real-time with incremental data.
+
+        Automatically deploy if new model outperforms existing model.
+
+7. Live Trading Deployment
+
+    Docker Container:
+
+        Must support continuous operation (always-on).
+
+        Use asyncio for real-time data streams and concurrency.
+
+    CI/CD with GitHub Actions:
+
+        On code push: run tests + short backtest.
+
+        If successful, build Docker image and publish.
+
+        Automatic deployment to production environment.
+
+        Rollback if the new build underperforms.
+
+    Risk Management:
+
+        Enforce dynamic position sizing based on volatility.
+
+        Force stop-loss on every order.
+
+        Circuit breaker for daily loss threshold.
+
+8. Monitoring & Logging
+
+    Logging: Python logging for structured logs (timestamp, level, module, message).
+
+    MLflow:
+
+        MLflow on GitHub to track experiments, metrics (PnL, Sharpe, etc.), hyperparameters, code version.
+
+    Prometheus + Grafana:
+
+        Prometheus GitHub and Grafana GitHub.
+
+        Real-time metrics dashboard: PnL, trades, system resource usage.
+
+    Alerts:
+
+        Telegram notifications for critical events (circuit breaker triggers, large drawdowns, API disconnections).
+
+        Optionally integrate with email or Slack if needed.
+
+9. Streamlit Web GUI
+
+    Runs inside the same Docker container on port 8501.
+
+    Features:
+
+        Live PnL, open positions, net exposure.
+
+        Historical performance charts (drawdown, Sharpe, etc.).
+
+        Strategy Controls (enable/disable, set risk parameters).
+
+        Logs & Alerts section.
+
+        Authentication (simple password or token-based).
+
+    Auto-Refresh to display the latest metrics (or manual refresh button).
+
+    Powered by Streamlit on GitHub.
+
+10. Folder Structure (Suggested)
+
+.
+├── Dockerfile
+├── requirements.txt
+├── app
+│   ├── README.md                <- (You are here)
+│   ├── main.py                  <- Main entry point (asyncio loop, strategy manager)
+│   ├── strategies
+│   │   ├── rule_based.py
+│   │   ├── ml_strategy.py
+│   │   ├── rl_strategy.py
+│   │   └── __init__.py
+│   ├── data_collection
+│   │   ├── binance_data.py
+│   │   └── feature_engineering.py
+│   ├── backtesting
+│   │   ├── backtester.py
+│   │   └── optuna_tuning.py
+│   ├── rl_env
+│   │   ├── custom_env.py
+│   │   ├── safe_exploration.py
+│   │   └── __init__.py
+│   ├── utils
+│   │   ├── logging_utils.py
+│   │   ├── risk_management.py
+│   │   └── notifications.py
+│   ├── streamlit_app
+│   │   └── app_ui.py
+│   └── ...
+└── ...
+
+    Note: This is just one possible layout—modify as needed.
+
+11. How to Use This README
+
+    Keep the Goals in Mind: As Cursor AI or any developer reads this file, it’s a reminder of specs, constraints, and best practices.
+
+    Follow the Steps: Use the sections above as a checklist for building out each component (data collection, strategy modules, RL environment, backtesting, CI/CD pipeline).
+
+    Maintain Consistency: Adhere to the architecture and naming conventions to ensure clarity and reproducibility.
+
+    Extend & Update: If new requirements arise, update this README so the plan remains aligned with any changes.
+
+12. Next Steps
+
+    Implement Data Collection with python-binance (REST for historical, WebSocket for live).
+
+    Save Data in Parquet and build feature engineering pipelines (Pandas/NumPy).
+
+    Develop Rule-Based, ML, and RL Strategies (using scikit-learn & Stable Baselines3).
+
+    Build a Backtester and integrate with Optuna for hyperparameter tuning.
+
+    Set up MLflow to track all experiments.
+
+    Add Risk Management logic (stop-loss, circuit breaker).
+
+    Integrate with Prometheus/Grafana and Telegram for monitoring and alerts.
+
+    Create a Streamlit App that displays real-time PnL, open positions, logs, and provides strategy toggles.
+
+    Dockerize everything in a single container using the Dockerfile.
+
+    Add GitHub Actions for CI/CD: tests, short backtest, Docker build, deploy, rollback.
+
+13. Contact & Support
+
+    Binance Integration: See python-binance on GitHub.
+
+    ML & RL:
+
+        scikit-learn on GitHub
+
+        Stable Baselines3 on GitHub
+
+    Hyperparameter Tuning: Optuna on GitHub
+
+    Experiment Tracking: MLflow on GitHub
+
+    Streamlit: Streamlit on GitHub
+
+    Prometheus & Grafana:
+
+        Prometheus on GitHub
+
+        Grafana on GitHub
+
+    Docker:
+
+        Docker Docs
+
+        Docker GitHub Organization

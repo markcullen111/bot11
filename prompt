@@ -1,0 +1,444 @@
+Enhanced Prompt for Cursor AI
+
+Goal
+Build a fully autonomous, self-adapting cryptocurrency trading bot for Binance UK using only Python 3.9+. All code must be containerized with Docker (no alternatives) for reproducible deployments. The bot should integrate with Binance UK using the python-binance GitHub repo, implement multiple trading strategies (rule-based, ML, and RL), store its data in local Parquet files, track experiments with MLflow, optimize hyperparameters with Optuna, and provide a real-time Streamlit web GUI for monitoring and management. It must enforce strict risk management (stop-loss, position sizing, circuit breaker) and automatically deploy new models if they outperform existing ones.
+1. Programming Language & Docker Containerization
+
+    Python 3.9+ only:
+
+        No alternative languages or frameworks permitted.
+
+        Use asyncio and python-binance for concurrency and streaming data.
+
+    Docker:
+
+        All code must run inside a single Docker container. No other container solutions or multi-container Compose setups.
+
+        Provide a Dockerfile at the root of the repo that can build an image capable of:
+
+            Collecting and storing data (historical + real-time).
+
+            Running backtests and training ML/RL models.
+
+            Executing live trading on Binance UK.
+
+            Serving a Streamlit web interface on port 8501.
+
+        Store environment variables in .env files or a secrets vault; do not hard-code credentials in the code.
+
+2. Binance UK Integration
+
+    python-binance:
+
+        Use the REST API for historical data and the WebSocket API for live ticks.
+
+        Implement custom logic to respect Binance’s rate limits (e.g., token bucket or fixed-sleep intervals).
+
+        Credentials:
+
+            Use environment variables, e.g., BINANCE_API_KEY and BINANCE_API_SECRET.
+
+            Ensure minimal permissions on keys (withdrawal permissions are not needed).
+
+        Compliance:
+
+            Keep an audit log of all trades.
+
+            Provide potential regulatory logs if needed.
+
+3. Data Collection & Feature Engineering
+
+    Local Parquet Storage:
+
+        Store all time-series data in Parquet files:
+
+            1-minute, 5-minute, 1-hour, daily bars (or as needed).
+
+        Each dataset should be organized by symbol and timeframe in a structured folder layout.
+
+    Feature Engineering:
+
+        Pandas & NumPy for all transformations (e.g., technical indicators).
+
+        Required indicators:
+
+            Simple Moving Average (SMA)
+
+            Exponential Moving Average (EMA)
+
+            Relative Strength Index (RSI)
+
+            Bollinger Bands
+
+            Volume-Weighted Average Price (VWAP)
+
+            Moving Average Convergence Divergence (MACD)
+
+        Custom features:
+
+            Order book depth snapshots, on-chain metrics, or any advanced features.
+            Store intermediate features in Parquet as well.
+
+    Performance:
+
+        All feature engineering must be vectorized and efficient (avoid excessive loops).
+
+        If GPU is available, allow optional acceleration (e.g., CuPy or GPU-based libraries).
+
+4. Multi-Strategy Architecture
+
+    Three main modules/classes:
+
+        Rule-Based (Trend Following, Mean Reversion, etc.).
+
+        Machine Learning (using scikit-learn for classification/regression).
+
+        Reinforcement Learning (using Stable Baselines3 for PPO, SAC, TD3).
+
+    Strategy Manager:
+
+        Central orchestrator enabling or disabling strategies.
+
+        Switch strategies based on real-time performance or user commands from the GUI.
+
+        Provide a standardized interface for data input, signal generation, order management, and risk checks.
+
+5. Reinforcement Learning Setup
+
+    Stable Baselines3:
+
+        Use only built-in algorithms: PPO, SAC, TD3.
+
+        Must incorporate a “safe exploration” wrapper:
+
+            Cap maximum position size as a fraction of account balance.
+
+            Mandatory stop-loss enforcement.
+
+        Reward shaping:
+
+            Penalize high drawdowns, reward stable growth in PnL.
+
+            Possibly incorporate risk-adjusted metrics (Sharpe, Sortino) into reward function.
+
+    Training Environment:
+
+        Implement a custom Gym-like environment or wrap an existing one with constraints:
+
+            Observations: price data, features, position size, portfolio value, etc.
+
+            Actions: buy, sell, hold with restricted leverage/position sizing.
+
+            Rewards: incorporate PnL changes, drawdown penalties.
+
+6. Backtesting & Historical Training
+
+    Backtester Module:
+
+        Loads historical data from Parquet files.
+
+        Iterates through each strategy type (Rule-Based, ML, RL) over multi-year data.
+
+        Logs key metrics to MLflow:
+
+            PnL, drawdown, Sharpe, Sortino, etc.
+
+    Hyperparameter Tuning with Optuna:
+
+        Integrate Optuna scripts that:
+
+            Randomly or systematically adjust hyperparameters (e.g., learning rate, gamma).
+
+            Run backtests automatically.
+
+            Store results in MLflow or a dedicated Optuna dashboard for comparison.
+
+    Reproducibility:
+
+        All backtest runs should be captured in MLflow:
+
+            Code version (Git commit hash).
+
+            Docker image tag.
+
+            Parameter values and metrics.
+
+7. Online & Offline Learning Workflow
+
+    Offline/Batch Retraining:
+
+        Periodically (e.g., every 24 hours), fetch the latest Parquet data from the live environment.
+
+        Retrain ML or RL models on the new data in a background process (still inside the Docker container).
+
+        Compare new models with currently active ones using MLflow metrics.
+
+    Online/Incremental Learning (optional if feasible in real-time):
+
+        Continuously update models with newly generated trade data.
+
+        Some algorithms (e.g., certain online RL or incremental ML) may support partial/streaming updates.
+
+        If the newly updated model outperforms the active model, auto-deploy it.
+
+8. Live Trading & Deployment
+
+    Continuous Docker Container:
+
+        The bot must run indefinitely inside the Docker container.
+
+        On startup:
+
+            Load latest (best) model from MLflow or local storage.
+
+            Establish WebSocket connections to Binance UK for real-time price/order updates.
+
+            Listen to signals from each strategy module.
+
+    GitHub Actions CI/CD:
+
+        Pipeline:
+
+            On code push, run unit tests and a short backtest.
+
+            If tests/backtest pass, build the Docker image and publish to a registry.
+
+            Deploy the container to production automatically.
+
+            If the newly deployed image underperforms or errors, roll back.
+
+    Async Event Loop:
+
+        Use asyncio for receiving streaming data (websockets) and placing orders concurrently.
+
+        Avoid blocking calls that freeze the event loop (e.g., heavy computations should be done in background tasks or separate threads).
+
+9. Risk Management & Safety
+
+    Position Sizing:
+
+        Dynamically adjust position size based on volatility and account equity.
+
+        Could be a fraction of account balance or vary with volatility measures (e.g., ATR-based or stdev-based).
+
+    Stop-Loss & Take-Profit:
+
+        Each trade must have a predetermined stop-loss and optional take-profit.
+
+        The RL environment must enforce stop-loss automatically if price moves too far against the position.
+
+    Circuit Breaker:
+
+        Define a daily loss threshold.
+
+        If exceeded, stop all trading for the remainder of the day and send alerts.
+
+        Non-negotiable for risk control.
+
+    Drawdown Penalties:
+
+        For RL, incorporate into the reward function to discourage excessive risk.
+
+10. Logging & Monitoring
+
+    Logging:
+
+        Use Python’s built-in logging with structured formatting:
+
+            Timestamp, Log Level, Module, Message.
+
+        Log to console (so it appears in Docker logs) and optionally to file.
+
+    MLflow:
+
+        Track:
+
+            PnL, Sharpe, drawdown, hyperparameters, code version.
+
+        Each strategy run or training session must log to MLflow.
+
+    Prometheus & Grafana:
+
+        Export real-time metrics:
+
+            Current PnL, open positions, number of trades, system resource usage.
+
+        Grafana dashboards for user-friendly monitoring.
+
+    Alerts:
+
+        Send Telegram notifications for:
+
+            Circuit breaker triggers.
+
+            Large drawdown events.
+
+            API disconnection or unhandled exceptions.
+
+11. Web-Based GUI (Streamlit)
+
+    Single-Page App:
+
+        Streamlit must run on port 8501 inside the same Docker container.
+
+        Provide real-time charts for PnL, drawdown, recent trades, etc.
+
+        Pull data from MLflow for historical performance charts if desired.
+
+        Pull real-time metrics from Prometheus or the trading engine in memory.
+
+    GUI Features:
+
+        Real-Time Metrics: Current PnL, open positions, net exposure, margin usage.
+
+        Historical Performance Graphs: Show performance curves, drawdowns, Sharpe, Sortino.
+
+        Strategy Controls: Toggles to enable/disable each strategy type. Sliders or text inputs for adjusting risk tolerance (e.g., position size caps, stop-loss).
+
+        Manual Retraining Button: Optionally trigger an immediate retraining or revert to a baseline model in emergencies.
+
+        Logs & Alerts View: Display recent log entries, highlight critical warnings or errors.
+
+        Authentication: Simple password or token-based auth to restrict access.
+
+    Auto-Refresh:
+
+        Use Streamlit’s re-run intervals or a manual refresh button to keep data up to date.
+
+12. Notifications & Alerts
+
+    Telegram Integration:
+
+        For critical system events:
+
+            Circuit breaker triggered.
+
+            Large drawdowns beyond a threshold.
+
+            API connectivity failures or exceptions.
+
+        Provide relevant details in each notification (e.g., current PnL, symbol, timeframe).
+
+    Fail-Safe:
+
+        If a major error occurs (unhandled exception in the main loop), halt the bot and send a Telegram alert.
+
+        Optionally attempt an automatic restart if it is safe to do so.
+
+13. Security & Compliance
+
+    API Key Management:
+
+        Store BINANCE_API_KEY and BINANCE_API_SECRET in environment variables.
+
+        Regularly rotate these keys (monthly or quarterly).
+
+    Audit Logs:
+
+        Maintain a record of all trades and model changes for potential regulatory review or internal auditing.
+
+    Permissions:
+
+        Keys should only have trading permissions, not withdrawal or funding.
+
+    Regulatory Compliance (Binance UK):
+
+        Follow local guidelines (AML/KYC, if needed).
+
+        Provide logs as needed for audits.
+
+14. Exact Deliverables
+
+    Single Git Repository containing:
+
+        Dockerfile at the root (no alternatives).
+
+        All Python source code:
+
+            Data collection (python-binance usage).
+
+            Parquet-based data storage.
+
+            Strategy modules (rule-based, ML, RL).
+
+            Reinforcement learning with Stable Baselines3 (PPO, SAC, TD3).
+
+            Backtesting and Optuna scripts.
+
+            MLflow integration scripts.
+
+            Streamlit app code.
+
+        CI/CD pipeline (GitHub Actions) for:
+
+            Automated testing (unit + short backtest) on push.
+
+            Docker image build and publish upon success.
+
+            Automated deployment and rollback if needed.
+
+    One Docker Image that can:
+
+        Fetch and store market data from Binance UK.
+
+        Train or refine models offline and optionally online.
+
+        Execute live trades based on the best current model.
+
+        Serve a Streamlit GUI on port 8501 for real-time monitoring.
+
+    Documentation:
+
+        Clear instructions on how to build and run the Docker container.
+
+        Explanation of environment variables (API keys, etc.).
+
+        Basic usage guide for the Streamlit interface and the different strategies.
+
+    Security & Key Management:
+
+        No plaintext keys in the codebase.
+
+        Proper environment-based or secrets vault approach.
+
+    Automatic Model Deployment:
+
+        If new models outperform the current one (based on MLflow metrics), swap them in automatically for live trading.
+
+15. Summary & Instructions for Cursor AI
+
+Your mission is to generate, refine, and integrate Python 3.9+ code to:
+
+    Collect Data from Binance UK (python-binance), store it locally in Parquet, and handle real-time streams with WebSockets.
+
+    Compute Technical Indicators using Pandas/NumPy for SMA, EMA, RSI, Bollinger Bands, VWAP, MACD.
+
+    Implement Multiple Strategies in a modular way:
+
+        Rule-Based (simple logic).
+
+        ML (scikit-learn classifiers/regressors).
+
+        RL (Stable Baselines3: PPO, SAC, TD3).
+
+    Backtest & Tune using Parquet historical data with an Optuna-driven hyperparameter search, logging all runs in MLflow.
+
+    Deploy the bot in a single Docker container that:
+
+        Continuously trades on Binance UK with risk controls.
+
+        Can be updated via GitHub Actions CI/CD pipeline on each code push.
+
+        Provides a Streamlit GUI at port 8501 for real-time monitoring, logs, and toggling strategies.
+
+    Enforce Risk Management (stop-losses, position sizing, daily circuit breaker).
+
+    Log & Monitor with Python logging, MLflow, Prometheus/Grafana, and Telegram alerts for critical events.
+
+    Ensure Security & Compliance by storing credentials in environment variables, not in code.
+
+Cursor AI should produce code that satisfies all these requirements, is well-structured, and thoroughly documented for maintainability. Where relevant, request clarifications or additional instructions to cover corner cases (e.g., exact file paths, Docker environment specifics, or interactive prompts for secrets).
+
+write yourself an interactive plan that you will change as you go so that your future self will know exactly what you are doing. the file is called plan.txt
+
+update the rules file as you go so you know what rules to follow

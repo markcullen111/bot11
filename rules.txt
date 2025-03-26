@@ -1,0 +1,34 @@
+# Project Rules and Constraints
+
+# General Rules
+- Never use mock data or test net - always use real Binance UK API
+- Only use Python 3.9+ for all code
+- All components must run in a single Docker container
+- No multi-container solutions or Docker Compose allowed
+
+# Security
+- Never hard-code credentials in source files
+- Store Binance API keys as environment variables or in a secrets vault
+- Use minimal permissions for API keys (trading only, no withdrawal permissions)
+
+# Risk Management
+- Implement mandatory stop-loss on all trades
+- Implement take-profit mechanisms where appropriate
+- Create a circuit breaker that halts trading if daily loss threshold is reached
+- Ensure safe exploration in reinforcement learning (max position size capped, drawdown penalties)
+
+# Data Management
+- Store time-series data in Parquet files (1m, 5m, 1h, daily bars)
+- Use proper feature engineering for technical indicators
+- Use vectorized operations with Pandas/NumPy for efficiency
+
+# Compliance
+- Store trade logs for regulatory/audit requirements
+- Follow Binance UK's rate limiting constraints
+- Implement proper error handling and reporting
+
+# Development
+- Follow a consistent coding style
+- Document all major functions and classes
+- Write unit tests for critical components
+- Implement CI/CD with GitHub Actions
