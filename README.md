@@ -64,7 +64,26 @@ Run only the UI component in debug mode:
 
 ## Deployment
 
-This application can be deployed on Streamlit Cloud. For instructions, see the [Deployment section](#) in the documentation.
+### Streamlit Cloud Deployment
+
+For quick deployment to Streamlit Cloud:
+
+1. Push your code to GitHub
+2. Log in to [Streamlit Cloud](https://streamlit.io/cloud)
+3. Click "New app" and select your repository
+4. Set the main file path to `streamlit_cloud_standalone.py`
+5. Deploy
+
+This will run the dashboard in debug mode with mock data. No real API credentials are required.
+
+For detailed instructions and production deployment, see [CLOUD_DEPLOYMENT.md](CLOUD_DEPLOYMENT.md).
+
+### Docker Deployment
+
+```bash
+docker build -t trading-bot .
+docker run -p 8501:8501 -e BINANCE_API_KEY="your_key" -e BINANCE_API_SECRET="your_secret" trading-bot
+```
 
 ## License
 

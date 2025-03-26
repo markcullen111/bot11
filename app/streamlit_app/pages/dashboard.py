@@ -6,6 +6,13 @@ from datetime import datetime, timedelta
 import os
 import sys
 
+# Make sure directories exist before importing modules
+for directory in ['data', 'data/logs', 'data/historical', 'data/models']:
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except Exception as e:
+        st.warning(f"Could not create directory {directory}: {e}")
+
 # Use relative import for the api module
 import sys
 from pathlib import Path
@@ -15,8 +22,19 @@ parent_dir = str(Path(__file__).parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-# Import API module
-from api import *
+# Import API module with error handling
+try:
+    from api import *
+except ImportError as e:
+    st.error(f"Error importing API module: {e}")
+    # Define fallback functions to prevent errors
+    def get_portfolio_value(): return 10000.0
+    def get_daily_pnl(): return 100.0
+    def get_open_positions(): return []
+    def get_recent_trades(): return []
+    def get_portfolio_history(): return []
+    def get_asset_allocation(): return {"BTC": 0.5, "ETH": 0.3, "USDT": 0.2}
+    def get_market_data(symbol, timeframe): return pd.DataFrame()
 
 def show():
     """Display the dashboard page."""

@@ -10,6 +10,15 @@ from typing import Dict, List, Any, Optional
 import logging
 from pathlib import Path
 
+# First thing: Create required directories - MUST happen before any other imports
+print("API: Creating necessary directories...")
+for directory in ['data', 'data/logs', 'data/historical', 'data/models']:
+    try:
+        os.makedirs(directory, exist_ok=True)
+        print(f"API: Directory created/verified: {directory}")
+    except Exception as e:
+        print(f"API: Warning: Could not create directory {directory}: {e}")
+
 # Add the app directory to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -17,15 +26,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 debug_mode = os.environ.get('TRADING_BOT_DEBUG', '0') == '1'
 log_level = logging.DEBUG if debug_mode else logging.INFO
 
-# Configure logging
+# Check if running on Streamlit Cloud
+is_streamlit_cloud = 'STREAMLIT_SHARING' in os.environ or 'STREAMLIT_RUN_ON_SAVE' in os.environ
+
+# Setup basic configuration first with just a stream handler
 logging.basicConfig(
     level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(os.path.join('data', 'logs', f'streamlit_api_{datetime.now().strftime("%Y%m%d")}.log'))
+        logging.StreamHandler()
     ]
 )
+
+# Only add file handler if writing to the directory is possible
+try:
+    log_file_path = os.path.join('data', 'logs', f'streamlit_api_{datetime.now().strftime("%Y%m%d")}.log')
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logging.getLogger().addHandler(file_handler)
+    print(f"API: Log file created: {log_file_path}")
+except Exception as e:
+    print(f"API: Warning: Could not set up log file: {e}")
+
 logger = logging.getLogger(__name__)
 
 if debug_mode:
@@ -271,10 +293,10 @@ class SharedState:
     def _generate_mock_market_data(self, symbol: str, timeframe: str):
         """Generate mock market data for a symbol and timeframe."""
         if timeframe == '1h':
-            freq = 'H'
+            freq = 'h'
             periods = 24 * 7  # 7 days of hourly data
         elif timeframe == '4h':
-            freq = '4H'
+            freq = '4h'
             periods = 6 * 7  # 7 days of 4-hour data
         else:
             freq = 'D'
