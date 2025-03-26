@@ -1,23 +1,24 @@
-# Crypto Trading Bot
+# CryptoTrader Pro
 
-A sophisticated cryptocurrency trading bot with multiple strategies, real-time monitoring, and machine learning capabilities.
+A professional-grade cryptocurrency trading bot with advanced features including real-time trading, backtesting, and machine learning integration.
 
 ## Features
 
+- Real-time cryptocurrency trading
 - Multiple trading strategies (RSI, MACD, Bollinger Bands)
-- Real-time market data monitoring
+- Advanced backtesting capabilities
 - Machine learning model integration
-- Backtesting capabilities
-- Performance analytics
-- Streamlit web interface
-- MLflow experiment tracking
+- Performance analytics and reporting
+- Risk management tools
+- Real-time market data monitoring
+- User-friendly Streamlit interface
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/crypto-trading-bot.git
-cd crypto-trading-bot
+git clone https://github.com/markcullen111/bot11.git
+cd bot11
 ```
 
 2. Create and activate a virtual environment:
@@ -31,18 +32,11 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Configuration
-
-1. Copy the example config file:
+4. Set up environment variables:
 ```bash
-cp config/config.yaml.example config/config.yaml
+cp .env.example .env
+# Edit .env with your configuration
 ```
-
-2. Edit `config/config.yaml` with your settings:
-- API credentials
-- Trading pairs
-- Strategy parameters
-- Risk management settings
 
 ## Usage
 
@@ -51,12 +45,16 @@ cp config/config.yaml.example config/config.yaml
 python run_streamlit.py
 ```
 
-2. Access the web interface at http://localhost:8502
+2. Access the web interface at http://localhost:8505
 
-3. Start the MLflow server (optional):
-```bash
-python run_mlflow.py
-```
+## Configuration
+
+Edit `config/config.yaml` to customize:
+- Trading pairs
+- Timeframes
+- Strategies
+- Risk parameters
+- UI settings
 
 ## Project Structure
 
@@ -78,11 +76,7 @@ crypto-trading-bot/
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 

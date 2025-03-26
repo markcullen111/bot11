@@ -37,7 +37,7 @@ def load_config() -> Dict[str, Any]:
         if not config_path.exists():
             logger.warning(f"Config file not found at {config_path}. Using default config.")
             return {
-                "app_name": "Crypto Trading Bot",
+                "app_name": "CryptoTrader Pro",
                 "pairs": ["BTC/USDT", "ETH/USDT"],
                 "timeframes": ["1h", "4h", "1d"],
                 "strategies": ["rsi", "macd", "bollinger"],

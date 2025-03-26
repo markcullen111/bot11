@@ -49,13 +49,8 @@ def main():
     log_dir = project_root / "data" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     
-    # Ensure MLflow artifact directory exists
-    mlflow_dir = project_root / "data" / "mlflow"
-    mlflow_dir.mkdir(parents=True, exist_ok=True)
-    
     # Define port for Streamlit
     streamlit_port = 8505  # Using a different port to avoid conflicts
-    mlflow_port = 5000
     
     try:
         # Start Streamlit app
@@ -76,35 +71,12 @@ def main():
         processes.append(streamlit_process)
         logger.info(f"Streamlit app started with PID {streamlit_process.pid}")
         
-        # Start MLflow server
-        mlflow_cmd = [
-            "mlflow", "ui",
-            "--host", "0.0.0.0",
-            "--port", str(mlflow_port),
-            "--backend-store-uri", f"sqlite:///{project_root}/data/mlflow/mlflow.db",
-            "--default-artifact-root", f"{project_root}/data/mlflow"
-        ]
-        
-        logger.info(f"Starting MLflow server on 0.0.0.0:{mlflow_port}")
-        logger.info(f"Artifact root: {project_root}/data/mlflow")
-        logger.info("Starting MLflow server...")
-        mlflow_process = subprocess.Popen(
-            mlflow_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True
-        )
-        processes.append(mlflow_process)
-        logger.info(f"MLflow server started with PID {mlflow_process.pid}")
-        
-        # Print access URLs
+        # Print access URL
         logger.info(f"Streamlit app available at: http://localhost:{streamlit_port}")
-        logger.info(f"MLflow UI available at: http://localhost:{mlflow_port}")
         
-        # Monitor processes for unexpected termination
+        # Monitor process for unexpected termination
         while True:
             streamlit_status = streamlit_process.poll()
-            mlflow_status = mlflow_process.poll()
             
             if streamlit_status is not None:
                 logger.error(f"Streamlit app terminated unexpectedly with exit code {streamlit_status}")
@@ -118,19 +90,6 @@ def main():
                 )
                 processes.append(streamlit_process)
                 logger.info(f"Streamlit app started with PID {streamlit_process.pid}")
-            
-            if mlflow_status is not None:
-                logger.error(f"MLflow server terminated unexpectedly with exit code {mlflow_status}")
-                # Restart MLflow
-                logger.info("Restarting MLflow server...")
-                mlflow_process = subprocess.Popen(
-                    mlflow_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    universal_newlines=True
-                )
-                processes.append(mlflow_process)
-                logger.info(f"MLflow server started with PID {mlflow_process.pid}")
             
             time.sleep(5)  # Check every 5 seconds
         
